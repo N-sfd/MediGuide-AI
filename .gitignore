@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.vscode/
+outputs/
+temp/
+*.wav
+*.mp3
+*.sqlite3
