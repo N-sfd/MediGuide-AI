@@ -26,3 +26,24 @@ python -m venv .venv
 pip install -r requirements.txt
 ollama pull gemma3:4b
 python app.py
+```
+
+## Phase 3 features
+
+- Local medical-document image upload
+- Medication-label extraction
+- Lab-report text extraction
+- Structured JSON output
+- Editable extracted information
+- Mandatory user confirmation
+- Image-file validation
+- Vision-scope safety checks
+- Local Ollama vision model
+- Automated image tests
+
+## Vision limitations
+
+This feature is limited to educational document assistance.
+It does not clinically interpret X-rays, CT scans, MRI scans,
+ultrasound images, pathology slides, wounds, skin lesions, or
+other diagnostic medical images.

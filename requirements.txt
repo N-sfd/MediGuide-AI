@@ -14,5 +14,9 @@ requests
 chromadb
 sentence-transformers
 pypdf
-pytest
 ruff
+gradio>=5.0,<7
+ollama>=0.4,<1
+faster-whisper>=1.1,<2
+pillow>=10,<13
+pytest>=8,<10
