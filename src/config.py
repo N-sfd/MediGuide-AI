@@ -1,8 +1,11 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 APP_TITLE = "MediGuide AI"
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "gemma3:4b")
@@ -18,3 +21,55 @@ VISION_MODEL_NAME = os.getenv("OLLAMA_VISION_MODEL","gemma3:4b",)
 MAX_IMAGE_MB = int(os.getenv("MAX_IMAGE_MB","10",))
 MAX_IMAGE_WIDTH = int(os.getenv("MAX_IMAGE_WIDTH","2400",))
 MAX_IMAGE_HEIGHT = int(os.getenv("MAX_IMAGE_HEIGHT","2400",))
+
+KNOWLEDGE_DIR = Path(
+    os.getenv(
+        "KNOWLEDGE_DIR",
+        str(BASE_DIR / "data" / "knowledge" / "approved"),
+    )
+)
+
+VECTOR_STORE_DIR = Path(
+    os.getenv(
+        "VECTOR_STORE_DIR",
+        str(BASE_DIR / "data" / "vector_store"),
+    )
+)
+
+CHROMA_COLLECTION_NAME = os.getenv(
+    "CHROMA_COLLECTION_NAME",
+    "mediguide_trusted_medical_knowledge",
+)
+
+EMBEDDING_MODEL_NAME = os.getenv(
+    "OLLAMA_EMBEDDING_MODEL",
+    "embeddinggemma",
+)
+
+RAG_TOP_K = int(
+    os.getenv(
+        "RAG_TOP_K",
+        "5",
+    )
+)
+
+RAG_MAX_DISTANCE = float(
+    os.getenv(
+        "RAG_MAX_DISTANCE",
+        "0.65",
+    )
+)
+
+CHUNK_SIZE_WORDS = int(
+    os.getenv(
+        "CHUNK_SIZE_WORDS",
+        "350",
+    )
+)
+
+CHUNK_OVERLAP_WORDS = int(
+    os.getenv(
+        "CHUNK_OVERLAP_WORDS",
+        "60",
+    )
+)

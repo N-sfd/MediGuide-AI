@@ -1,0 +1,18 @@
+[
+  {
+    "question": "What do systolic and diastolic blood pressure mean?",
+    "expected_source_ids": ["cdc-hbp-001"],
+    "must_include_terms": [
+      "systolic",
+      "diastolic"
+    ]
+  },
+  {
+    "question": "What is tuberculosis testing?",
+    "expected_source_ids": ["cdc-tb-001"],
+    "must_include_terms": [
+      "test",
+      "tuberculosis"
+    ]
+  }
+]

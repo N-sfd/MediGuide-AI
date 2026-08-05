@@ -1,10 +1,10 @@
 import gradio as gr
 
-from src.chatbot import generate_response
 from src.image_analyzer import (
     analyze_medical_document_image,
     format_extraction_for_review,
 )
+from src.rag_chatbot import generate_rag_response
 from src.transcriber import transcribe_audio as run_transcription
 
 
@@ -17,7 +17,7 @@ def chat_response(
     if not message or not message.strip():
         return current_history, ""
 
-    answer = generate_response(message, history)
+    answer = generate_rag_response(message, history)
 
     current_history.extend(
         [
@@ -34,6 +34,54 @@ def transcribe_audio(audio_path: str | None) -> str:
     if not result.success:
         return result.error or "Transcription failed."
     return result.text
+
+
+def send_confirmed_transcript(
+    transcript_text: str,
+    confirmed: bool,
+    history: list[dict] | None,
+) -> tuple[list[dict], str, bool, str]:
+    current_history = list(history or [])
+
+    if not transcript_text or not transcript_text.strip():
+        return (
+            current_history,
+            "❌ There is no transcript to send.",
+            False,
+            transcript_text,
+        )
+
+    if not confirmed:
+        return (
+            current_history,
+            (
+                "⚠️ Review and correct the transcript, then check "
+                "the confirmation box first."
+            ),
+            False,
+            transcript_text,
+        )
+
+    clean_transcript = transcript_text.strip()
+
+    answer = generate_rag_response(
+        clean_transcript,
+        current_history,
+    )
+
+    current_history.extend(
+        [
+            {"role": "user", "content": clean_transcript},
+            {"role": "assistant", "content": answer},
+        ]
+    )
+
+    return (
+        current_history,
+        "✅ Confirmed question sent to MediGuide.",
+        False,
+        "",
+    )
 
 
 def create_image_extraction(
@@ -77,6 +125,7 @@ def send_confirmed_image_text(
     extracted_text: str,
     confirmed: bool,
     history: list[dict] | None,
+    image_question: str | None = "",
 ) -> tuple[list[dict], str, bool, str]:
     current_history = list(history or [])
 
@@ -99,18 +148,14 @@ def send_confirmed_image_text(
             extracted_text,
         )
 
-    confirmed_prompt = (
-        "The following information was extracted from an uploaded "
-        "medical document and reviewed by the user.\n\n"
-        f"{extracted_text.strip()}\n\n"
-        "Explain this information in plain language. Do not diagnose, "
-        "prescribe, or infer information not included above. Identify "
-        "important uncertainty and suggest questions the user can ask "
-        "a qualified professional."
+    retrieval_question = (
+        f"{(image_question or '').strip() or 'Explain this document.'}\n\n"
+        f"Confirmed extracted information:\n"
+        f"{extracted_text.strip()}"
     )
 
-    answer = generate_response(
-        confirmed_prompt,
+    answer = generate_rag_response(
+        retrieval_question,
         current_history,
     )
 
@@ -163,6 +208,13 @@ with gr.Blocks(title="MediGuide AI") as app:
         """
     )
 
+    gr.Markdown(
+        """
+- **Knowledge mode:** Approved local sources only
+- **Unsupported-answer behavior:** Decline rather than guess
+"""
+    )
+
     with gr.Tab("Text Chat"):
         chatbot = gr.Chatbot(height=420)
         message_box = gr.Textbox(
@@ -200,14 +252,30 @@ with gr.Blocks(title="MediGuide AI") as app:
             lines=5,
         )
 
+        voice_confirmation = gr.Checkbox(
+            label="I reviewed and corrected this transcript",
+            value=False,
+        )
+
+        send_transcript_button = gr.Button(
+            "Send confirmed question to chat",
+            variant="primary",
+        )
+
+        voice_status = gr.Markdown(
+            "No transcript has been sent."
+        )
+
         transcribe_button.click(
             fn=transcribe_audio,
             inputs=audio_input,
             outputs=transcript,
         )
 
-        gr.Markdown(
-            "Copy the corrected transcript into Text Chat after checking it."
+        send_transcript_button.click(
+            fn=send_confirmed_transcript,
+            inputs=[transcript, voice_confirmation, chatbot],
+            outputs=[chatbot, voice_status, voice_confirmation, transcript],
         )
 
     with gr.Tab("Medical Document Image"):
@@ -292,6 +360,7 @@ medical images.
                 extracted_text,
                 image_confirmation,
                 chatbot,
+                image_question,
             ],
             outputs=[
                 chatbot,
@@ -310,6 +379,28 @@ medical images.
                 image_confirmation,
                 image_status,
             ],
+        )
+
+    with gr.Tab("Knowledge Base"):
+        gr.Markdown(
+            """
+### Approved knowledge base
+
+MediGuide answers educational medical questions using reviewed,
+approved sources stored locally.
+
+Each answer should include:
+
+- Inline numbered citations
+- Source title
+- Publisher
+- Publication date when available
+- Knowledge-base review date
+- Original source location
+
+If relevant evidence is unavailable, the assistant should decline
+to provide an unsupported answer.
+"""
         )
 
     with gr.Tab("Privacy and Limitations"):

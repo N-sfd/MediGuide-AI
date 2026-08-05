@@ -11,6 +11,10 @@ uploads/
 temp/
 outputs/
 
+data/vector_store/
+data/knowledge/private/
+data/knowledge/rejected/
+
 *.wav
 *.mp3
 *.m4a
