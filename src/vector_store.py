@@ -21,6 +21,7 @@ def get_chroma_collection():
         metadata={
             "description": (
                 "Approved patient-education medical sources"
-            )
+            ),
+            "hnsw:space": "cosine",
         },
     )

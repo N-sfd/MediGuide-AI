@@ -1,0 +1,1 @@
+"""MediGuide Gradio product shell."""

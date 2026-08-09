@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -60,6 +61,20 @@ RAG_MAX_DISTANCE = float(
     )
 )
 
+RAG_MAX_OUTPUT_TOKENS = int(
+    os.getenv(
+        "RAG_MAX_OUTPUT_TOKENS",
+        "500",
+    )
+)
+
+RAG_MAX_PASSAGE_WORDS = int(
+    os.getenv(
+        "RAG_MAX_PASSAGE_WORDS",
+        "180",
+    )
+)
+
 CHUNK_SIZE_WORDS = int(
     os.getenv(
         "CHUNK_SIZE_WORDS",
@@ -71,5 +86,58 @@ CHUNK_OVERLAP_WORDS = int(
     os.getenv(
         "CHUNK_OVERLAP_WORDS",
         "60",
+    )
+)
+
+PIPER_EXECUTABLE = Path(
+    os.getenv(
+        "PIPER_EXECUTABLE",
+        shutil.which("piper")
+        or str(BASE_DIR / "tools" / "piper" / "piper.exe"),
+    )
+)
+
+PIPER_VOICE_DIR = Path(
+    os.getenv(
+        "PIPER_VOICE_DIR",
+        str(BASE_DIR / "voices"),
+    )
+)
+
+SPEECH_OUTPUT_DIR = Path(
+    os.getenv(
+        "SPEECH_OUTPUT_DIR",
+        str(BASE_DIR / "outputs" / "speech"),
+    )
+)
+
+DEFAULT_RESPONSE_LANGUAGE = os.getenv(
+    "DEFAULT_RESPONSE_LANGUAGE",
+    "en",
+)
+
+TRANSLATION_MODEL_NAME = os.getenv(
+    "OLLAMA_TRANSLATION_MODEL",
+    "gemma3:4b",
+)
+
+MAX_TTS_CHARACTERS = int(
+    os.getenv(
+        "MAX_TTS_CHARACTERS",
+        "3000",
+    )
+)
+
+TTS_TIMEOUT_SECONDS = int(
+    os.getenv(
+        "TTS_TIMEOUT_SECONDS",
+        "90",
+    )
+)
+
+DELETE_SPEECH_AFTER_MINUTES = int(
+    os.getenv(
+        "DELETE_SPEECH_AFTER_MINUTES",
+        "30",
     )
 )

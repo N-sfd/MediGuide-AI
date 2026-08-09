@@ -1,12 +1,28 @@
 # MediGuide AI
 
-MediGuide AI is a local, multimodal health-education and
-appointment-preparation assistant.
+MediGuide AI is a local, multimodal health-education and appointment-preparation assistant. The current product has a FastAPI backend and a Next.js + Tailwind frontend, while preserving the existing local Ollama, Chroma, Whisper, vision, and Piper services.
 
-## Current Features
+## Architecture
+
+```mermaid
+flowchart LR
+	Browser[Next.js workspace\nVercel] -->|REST + multipart| API[FastAPI\nDocker container]
+	API --> RAG[RAG pipeline]
+	API --> Vision[Document vision]
+	API --> Whisper[Whisper transcription]
+	API --> Piper[Piper TTS]
+	RAG --> Chroma[(Chroma approved\nknowledge store)]
+	RAG --> Ollama[Ollama local models]
+	Vision --> Ollama
+	API --> Sources[Validated citations\nand safety checks]
+```
+
+## Product surface
 
 - Local open-source language model
-- Gradio chatbot interface
+- Premium landing page and unified AI workspace
+- FastAPI endpoints for chat, documents, voice, translation, and TTS
+- Next.js frontend ready for Vercel
 - Conversation history
 - Emergency phrase detection
 - Medical scope restrictions
@@ -18,15 +34,49 @@ This project is an educational prototype. It does not diagnose,
 prescribe medication, interpret medical images clinically, or replace
 a qualified healthcare professional.
 
-## Run Locally
+## Run locally
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ollama pull gemma3:4b
-python app.py
+uvicorn api:app --reload --port 8000
+
+# In another terminal
+cd frontend
+copy .env.example .env.local
+npm install
+npm run dev
 ```
+
+The frontend runs at `http://localhost:3000` and the API docs at `http://localhost:8000/docs`. The original Gradio experience remains available with `python app.py`.
+
+## Deploy
+
+### Backend
+
+Build and run the API container in an environment with access to the configured Ollama host and the approved knowledge store:
+
+```powershell
+docker build -t mediguide-api .
+docker run --env-file .env -p 8000:8000 mediguide-api
+```
+
+For a remote deployment, set `OLLAMA_HOST`, model names, and the vector-store configuration in the backend environment. Keep the API behind HTTPS and restrict `allow_origins` in `api.py` to the deployed frontend origin.
+
+### Frontend on Vercel
+
+Import the `frontend` directory as the Vercel project root and set `NEXT_PUBLIC_API_URL` to the HTTPS URL of the separately deployed backend. Build command: `npm run build`.
+
+## API endpoints
+
+- `GET /api/health`
+- `POST /api/chat`
+- `POST /api/transcribe` with multipart audio
+- `POST /api/documents/analyze` with multipart image/PDF-compatible document input
+- `POST /api/translate`
+- `POST /api/speak`
 
 ## Phase 3 features
 

@@ -118,9 +118,22 @@ def build_source_number_map(
     }
 
 
+def _truncate_words(text: str, max_words: int | None) -> str:
+    if not max_words:
+        return text
+
+    words = text.split()
+
+    if len(words) <= max_words:
+        return text
+
+    return " ".join(words[:max_words]) + " …"
+
+
 def format_evidence_context(
     chunks: list[RetrievedChunk],
     source_number_map: dict[str, int],
+    max_words_per_passage: int | None = None,
 ) -> str:
     evidence_sections: list[str] = []
 
@@ -136,11 +149,16 @@ def format_evidence_context(
             source_id
         )
 
+        passage = _truncate_words(
+            chunk.text,
+            max_words_per_passage,
+        )
+
         evidence_sections.append(
             f"[Source {citation_number}]\n"
             f"Title: {chunk.metadata.get('title', '')}\n"
             f"Publisher: {chunk.metadata.get('publisher', '')}\n"
-            f"Passage:\n{chunk.text}"
+            f"Passage:\n{passage}"
         )
 
     return "\n\n".join(evidence_sections)

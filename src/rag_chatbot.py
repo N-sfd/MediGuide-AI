@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 from ollama import Client
@@ -7,6 +8,7 @@ from src.chatbot import (
     format_history,
 )
 from src.citations import (
+    CitationSource,
     build_citation_sources,
     build_source_number_map,
     find_citation_numbers,
@@ -17,6 +19,8 @@ from src.citations import (
 from src.config import (
     MODEL_NAME,
     OLLAMA_HOST,
+    RAG_MAX_OUTPUT_TOKENS,
+    RAG_MAX_PASSAGE_WORDS,
     TEMPERATURE,
 )
 from src.prompts import RAG_MEDICAL_SYSTEM_PROMPT
@@ -28,20 +32,51 @@ from src.safety import check_for_emergency
 from src.validator import validate_response
 
 
-def generate_rag_response(
+ANSWER_DETAIL_INSTRUCTIONS = {
+    "Concise": (
+        "Answer briefly: one to two sentences per section. Omit any "
+        "section that would only restate a point already made."
+    ),
+    "Detailed": (
+        "Provide thorough detail in each section, including relevant "
+        "nuances, and note any caveats present in the evidence."
+    ),
+}
+
+READING_LEVEL_INSTRUCTIONS = {
+    "Plain": (
+        "Use plain, everyday language at roughly a sixth-grade reading "
+        "level. Avoid medical jargon; when a medical term is necessary, "
+        "briefly define it in parentheses the first time it appears."
+    ),
+}
+
+
+def _prepare_generation(
     user_message: str,
-    history: list[dict[str, Any]] | None = None,
-) -> str:
+    history: list[dict[str, Any]] | None,
+    *,
+    answer_detail: str = "Standard",
+    reading_level: str = "Standard",
+) -> tuple[str, list[dict[str, Any]] | None, list[CitationSource] | None]:
+    """Runs the pre-generation pipeline.
+
+    Returns ("early", answer, None) if a final answer can already be
+    given without calling the model, otherwise
+    ("ready", messages, sources).
+    """
     if not user_message or not user_message.strip():
-        return "Please enter a health-education question."
+        return "early", "Please enter a health-education question.", None
 
     clean_message = user_message.strip()
 
     emergency = check_for_emergency(clean_message)
 
     if emergency.is_emergency:
-        return emergency.message or (
-            "Call emergency services immediately."
+        return (
+            "early",
+            emergency.message or "Call emergency services immediately.",
+            None,
         )
 
     try:
@@ -49,19 +84,23 @@ def generate_rag_response(
         retrieved = diversify_results(retrieved)
     except Exception as error:
         return (
+            "early",
             "MediGuide could not search the approved knowledge base.\n\n"
-            f"Technical detail: {type(error).__name__}: {error}"
+            f"Technical detail: {type(error).__name__}: {error}",
+            None,
         )
 
     if not retrieved:
         return (
-            "I could not find sufficiently relevant information in the "
-            "approved medical knowledge base. I should not answer this "
-            "question from unsupported model knowledge.\n\n"
+            "early",
+            "Not enough trusted information found.\n\n"
+            "MediGuide will not answer this question using unsupported "
+            "model knowledge.\n\n"
             "Consider asking a qualified healthcare professional or "
             "adding an approved source covering this topic.\n\n"
             "---\n"
-            f"{SAFETY_REMINDER}"
+            f"{SAFETY_REMINDER}",
+            None,
         )
 
     sources = build_citation_sources(retrieved)
@@ -70,6 +109,20 @@ def generate_rag_response(
     evidence_context = format_evidence_context(
         retrieved,
         source_map,
+        max_words_per_passage=RAG_MAX_PASSAGE_WORDS,
+    )
+
+    valid_source_numbers = sorted(
+        source.number for source in sources
+    )
+
+    style_instructions = " ".join(
+        instruction
+        for instruction in (
+            ANSWER_DETAIL_INSTRUCTIONS.get(answer_detail),
+            READING_LEVEL_INSTRUCTIONS.get(reading_level),
+        )
+        if instruction
     )
 
     user_prompt = f"""
@@ -81,9 +134,23 @@ APPROVED EVIDENCE
 
 {evidence_context}
 
-Write a clear patient-education answer using only this evidence.
-Use inline citations such as [1] and [2]. If the evidence cannot
-fully answer the question, explicitly state what remains unknown.
+The only valid citation numbers for this answer are:
+{valid_source_numbers}
+
+Write a patient-education answer using only this evidence.
+
+Use these exact headings in order:
+## General explanation
+## What this means
+## What MediGuide cannot determine
+## Questions to ask a healthcare professional
+## When to seek professional care
+
+Cite factual statements with valid numbers such as
+[{valid_source_numbers[0]}]. Do not invent citations. Do not write a
+Sources section. Keep sections short — not one large paragraph. If the
+evidence cannot fully answer the question, say what remains unknown in
+"What MediGuide cannot determine".{(" " + style_instructions) if style_instructions else ""}
 """
 
     messages = [
@@ -98,26 +165,13 @@ fully answer the question, explicitly state what remains unknown.
         },
     ]
 
-    client = Client(host=OLLAMA_HOST)
+    return "ready", messages, sources
 
-    try:
-        response = client.chat(
-            model=MODEL_NAME,
-            messages=messages,
-            options={
-                "temperature": TEMPERATURE,
-            },
-        )
 
-        answer = response.message.content.strip()
-
-    except Exception as error:
-        return (
-            "The evidence was retrieved, but the local model could "
-            "not generate the answer.\n\n"
-            f"Technical detail: {type(error).__name__}: {error}"
-        )
-
+def _finalize_answer(
+    answer: str,
+    sources: list[CitationSource],
+) -> str:
     valid_numbers = {
         source.number
         for source in sources
@@ -162,3 +216,82 @@ fully answer the question, explicitly state what remains unknown.
         f"---\n"
         f"{SAFETY_REMINDER}"
     )
+
+
+def stream_rag_response(
+    user_message: str,
+    history: list[dict[str, Any]] | None = None,
+    *,
+    answer_detail: str = "Standard",
+    reading_level: str = "Standard",
+) -> Iterator[str]:
+    """Yields the answer as it is generated.
+
+    Every yielded value before the last one is an unvalidated draft of
+    the model's output, shown only so the wait does not feel frozen.
+    The final yielded value is always the fully validated answer (or a
+    withheld/error message), exactly as ``generate_rag_response``
+    would return.
+    """
+    stage, payload, sources = _prepare_generation(
+        user_message,
+        history,
+        answer_detail=answer_detail,
+        reading_level=reading_level,
+    )
+
+    if stage == "early":
+        yield payload
+        return
+
+    messages = payload
+    client = Client(host=OLLAMA_HOST)
+    accumulated = ""
+
+    try:
+        for chunk in client.chat(
+            model=MODEL_NAME,
+            messages=messages,
+            options={
+                "temperature": TEMPERATURE,
+                "num_predict": RAG_MAX_OUTPUT_TOKENS,
+            },
+            stream=True,
+        ):
+            piece = chunk.message.content or ""
+
+            if not piece:
+                continue
+
+            accumulated += piece
+            yield accumulated
+
+    except Exception as error:
+        yield (
+            "The evidence was retrieved, but the local model could "
+            "not generate the answer.\n\n"
+            f"Technical detail: {type(error).__name__}: {error}"
+        )
+        return
+
+    yield _finalize_answer(accumulated.strip(), sources)
+
+
+def generate_rag_response(
+    user_message: str,
+    history: list[dict[str, Any]] | None = None,
+    *,
+    answer_detail: str = "Standard",
+    reading_level: str = "Standard",
+) -> str:
+    answer = "Please enter a health-education question."
+
+    for answer in stream_rag_response(
+        user_message,
+        history,
+        answer_detail=answer_detail,
+        reading_level=reading_level,
+    ):
+        pass
+
+    return answer
