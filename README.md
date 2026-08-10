@@ -69,6 +69,10 @@ For a remote deployment, set `OLLAMA_HOST`, model names, and the vector-store co
 
 Import the `frontend` directory as the Vercel project root and set `NEXT_PUBLIC_API_URL` to the HTTPS URL of the separately deployed backend. Build command: `npm run build`.
 
+### Frontend on Cloudflare Workers
+
+Set `NEXT_PUBLIC_API_URL` to the HTTPS URL of the separately deployed FastAPI backend before running `npm --prefix frontend run cloudflare:deploy`. The frontend cannot use `localhost:8000` from a public Worker; that address refers to each visitor's own computer.
+
 ## API endpoints
 
 - `GET /api/health`

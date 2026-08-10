@@ -1,115 +1,127 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useRef, useState } from "react";
-import { ArrowUpRight, BookOpen, ChevronRight, FileText, Globe2, Menu, Mic, Paperclip, ShieldCheck, Sparkles, Stethoscope, Volume2 } from "lucide-react";
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { Activity, ArrowUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clipboard, FileText, HelpCircle, Home as HomeIcon, Image as ImageIcon, Menu, Mic, Paperclip, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, Stethoscope, Trash2, UserRound, Volume2, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { PremiumLanding } from "./premium-landing";
 
-type Source = { number: number; title: string; publisher: string; url?: string };
+type Source = { number: number; title: string; publisher: string; published?: string; reviewed?: string; url?: string };
 type Message = { role: "user" | "assistant"; content: string };
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const starters = [
-  ["Ask about a health topic", "What are common signs of seasonal allergies?", BookOpen],
-  ["Prepare for a visit", "Help me prepare questions for my appointment.", Stethoscope],
-  ["Understand a document", "What should I look for in this lab report?", FileText],
+type HealthStatus = { status: string; detail: string };
+type HealthResponse = { status: string; ready: number; total: number; statuses: Record<string, HealthStatus> };
+type View = "conversation" | "documents" | "visit" | "sources";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
+const API_CONFIGURATION_MESSAGE = "The deployed frontend has no AI service URL. Set NEXT_PUBLIC_API_URL to the HTTPS address of the FastAPI backend and redeploy.";
+const quickActions = [
+  ["Ask a health question", "Get a clear, evidence-supported explanation.", BookOpen, "What would you like to understand about your health?"],
+  ["Understand a document", "Review visible information before you reason from it.", FileText, "Help me understand this health document in plain language."],
+  ["Prepare for a visit", "Organize what you want to ask a clinician.", Stethoscope, "Help me prepare questions for my next healthcare visit."],
 ] as const;
+const healthLabels: Record<string, string> = { fastapi: "FastAPI", ollama: "Ollama", text_model: "Text model", vision_model: "Vision model", embedding_model: "Embedding model", vector_store: "Vector store", whisper: "Whisper", piper: "Piper TTS", translation_model: "Translation model" };
 
 export default function Home() {
   const [workspace, setWorkspace] = useState(false);
+  const [view, setView] = useState<View>("conversation");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [question, setQuestion] = useState("");
   const [sources, setSources] = useState<Source[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState("");
+  const [error, setError] = useState("");
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<number | null>(null);
   const [language, setLanguage] = useState("English");
-  const [notice, setNotice] = useState("");
   const [recording, setRecording] = useState(false);
+  const [document, setDocument] = useState<{ name: string; data: Record<string, unknown> } | null>(null);
+  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
+  const [documentDragging, setDocumentDragging] = useState(false);
+  const [visitFields, setVisitFields] = useState<Record<string, string>>({});
+  const fileInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
-  const fileInput = useRef<HTMLInputElement>(null);
 
-  async function submit(event?: FormEvent, preset?: string) {
-    event?.preventDefault();
-    const message = (preset ?? question).trim();
-    if (!message || loading) return;
-    setWorkspace(true); setQuestion(""); setLoading(true); setNotice("");
-    setMessages((current) => [...current, { role: "user", content: message }]);
-    try {
-      const response = await fetch(`${API_URL}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message, history: messages }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "The assistant could not respond.");
-      setAnswer(data.answer || "No answer returned."); setSources(data.sources || []);
-      setMessages((current) => [...current, { role: "assistant", content: data.answer }]);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Could not connect to MediGuide."); }
-    finally { setLoading(false); }
+  useEffect(() => { if (workspace) void checkHealth(); }, [workspace]);
+  useEffect(() => () => { if (documentPreviewUrl) URL.revokeObjectURL(documentPreviewUrl); }, [documentPreviewUrl]);
+
+  async function checkHealth() {
+    try { const response = await fetch(`${API_URL}/api/health`); if (!response.ok) throw new Error(); setHealth(await response.json()); }
+    catch { setHealth({ status: "unavailable", ready: 0, total: 9, statuses: {} }); }
   }
 
-  async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]; if (!file) return;
-    const form = new FormData(); form.append("file", file); setNotice("Reading the document securely...");
+  async function sendQuestion(event?: FormEvent, preset?: string) {
+    event?.preventDefault();
+    const text = (preset ?? question).trim();
+    if (!text || loadingStage) return;
+    setWorkspace(true); setView("conversation"); setQuestion(""); setError(""); setLoadingStage("Checking safety...");
+    const nextHistory = [...messages, { role: "user" as const, content: text }];
+    setMessages(nextHistory); setAnswer(""); setSources([]);
+    try {
+      setLoadingStage("Searching trusted sources...");
+      const response = await fetch(`${API_URL}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, history: messages }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "The local AI service is unavailable.");
+      setLoadingStage("Validating citations...");
+      setAnswer(data.answer || "No answer was returned."); setSources(data.sources || []); setMessages([...nextHistory, { role: "assistant", content: data.answer || "" }]);
+    } catch { setError(API_URL ? "MediGuide could not reach the local AI service." : API_CONFIGURATION_MESSAGE); setMessages(messages); }
+    finally { setLoadingStage(""); }
+  }
+
+  async function uploadDocument(file: File) {
+    setView("documents"); setError(""); setDocumentDragging(false); setDocumentPreviewUrl(file.type.startsWith("image/") ? URL.createObjectURL(file) : null); setLoadingStage("Reading visible information...");
+    const form = new FormData(); form.append("file", file);
     try {
       const response = await fetch(`${API_URL}/api/documents/analyze`, { method: "POST", body: form }); const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Document analysis failed.");
-      setQuestion(`Help me understand this ${data.data?.document_type || "health document"}.`); setNotice("Document reviewed. Add a question, then send it to the assistant."); setWorkspace(true);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Document analysis failed."); }
+      setDocument({ name: file.name, data: data.data || {} }); setLoadingStage("");
+    } catch { setDocumentPreviewUrl(null); setLoadingStage(""); setError(API_URL ? "MediGuide could not read that document. Check the file and try again." : API_CONFIGURATION_MESSAGE); }
   }
 
-  async function translate() {
-    if (!answer) return; const target = language === "English" ? "Spanish" : "English"; setNotice(`Translating to ${target}...`);
-    try {
-      const response = await fetch(`${API_URL}/api/translate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: answer, language: target }) }); const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Translation failed."); setAnswer(data.text); setLanguage(target); setNotice(`Translated to ${target}.`);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Translation failed."); }
-  }
-
-  function speak() {
-    if (!answer) return;
-    fetch(`${API_URL}/api/speak`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: answer.replace(/[#*_\[\]]/g, "") }) }).then(async (response) => { if (!response.ok) throw new Error("Voice output is unavailable."); const audio = new Audio(URL.createObjectURL(await response.blob())); await audio.play(); }).catch((error) => setNotice(error instanceof Error ? error.message : "Voice output failed."));
-  }
+  function onDrop(event: DragEvent<HTMLDivElement>) { event.preventDefault(); setDocumentDragging(false); const file = event.dataTransfer.files[0]; if (file) void uploadDocument(file); }
+  function onFileChange(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (file) void uploadDocument(file); }
 
   async function toggleVoice() {
-    if (recording) {
-      recorder.current?.stop();
-      setRecording(false);
-      setNotice("Preparing your transcript...");
-      return;
-    }
+    if (recording) { recorder.current?.stop(); setRecording(false); setLoadingStage("Creating transcript..."); return; }
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Voice input is not supported in this browser.");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      startRecording(stream);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Microphone permission was not granted.");
-    }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); const next = new MediaRecorder(stream); audioChunks.current = [];
+      next.ondataavailable = (event) => audioChunks.current.push(event.data);
+        next.onstop = async () => { stream.getTracks().forEach((track) => track.stop()); const form = new FormData(); form.append("file", new Blob(audioChunks.current, { type: "audio/webm" }), "question.webm"); try { const response = await fetch(`${API_URL}/api/transcribe`, { method: "POST", body: form }); const data = await response.json(); if (!response.ok) throw new Error(); setQuestion(data.text || ""); } catch { setError("MediGuide could not create a transcript. Your audio was not sent."); } finally { setLoadingStage(""); } };
+      recorder.current = next; next.start(); setRecording(true); setLoadingStage("Listening locally...");
+    } catch { setError("Microphone access was not available. Your question has not been sent."); }
   }
 
-  function startRecording(stream: MediaStream) {
-    const nextRecorder = new MediaRecorder(stream);
-    audioChunks.current = [];
-    nextRecorder.ondataavailable = (event) => audioChunks.current.push(event.data);
-    nextRecorder.onstop = async () => {
-      stream.getTracks().forEach((track) => track.stop());
-      const form = new FormData();
-      form.append("file", new Blob(audioChunks.current, { type: "audio/webm" }), "question.webm");
-      try {
-        const response = await fetch(`${API_URL}/api/transcribe`, { method: "POST", body: form });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Transcription failed.");
-        setQuestion(data.text || ""); setNotice("Transcript ready. Review it before sending.");
-      } catch (error) { setNotice(error instanceof Error ? error.message : "Transcription failed."); }
-    };
-    recorder.current = nextRecorder;
-    nextRecorder.start(); setRecording(true); setNotice("Listening. Select the microphone again when you are finished.");
-  }
+  function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendQuestion(); } }
+  function clearSession() { setMessages([]); setAnswer(""); setQuestion(""); setSources([]); setDocument(null); setDocumentPreviewUrl(null); setError(""); setView("conversation"); }
+  function retry() { const last = [...messages].reverse().find((item) => item.role === "user"); if (last) void sendQuestion(undefined, last.content); }
+  function copyAnswer() { if (answer) void navigator.clipboard?.writeText(answer); }
+  function readAnswer() { if (!answer) return; void fetch(`${API_URL}/api/speak`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: answer.replace(/[#*_\[\]]/g, "") }) }).then(async (response) => { if (!response.ok) throw new Error(); const audio = new Audio(URL.createObjectURL(await response.blob())); await audio.play(); }).catch(() => setError("Spoken output is unavailable right now.")); }
+  async function translateAnswer(target: string) { if (!answer) return; setLoadingStage(`Translating to ${target}...`); try { const response = await fetch(`${API_URL}/api/translate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: answer, language: target }) }); const data = await response.json(); if (!response.ok) throw new Error(); setAnswer(data.text || answer); setLanguage(target); } catch { setError("MediGuide could not translate this answer right now."); } finally { setLoadingStage(""); } }
+  function generateVisitSummary() { const summary = Object.entries(visitFields).filter(([, value]) => value.trim()).map(([key, value]) => `${key}: ${value}`).join("\n\n"); setQuestion(`Help me prepare questions for a healthcare professional using these patient-provided notes:\n\n${summary}`); setView("conversation"); }
 
-  return <main className={workspace ? "app-shell workspace-mode" : "app-shell"}>
-    <header className="topbar"><button className="brand" onClick={() => setWorkspace(false)} aria-label="MediGuide home"><span className="brand-mark"><Sparkles size={15} /></span><span>MediGuide <em>AI</em></span></button><nav className="nav-links"><a href="#how">How it works</a><a href="#privacy">Privacy first</a><button onClick={() => setWorkspace(true)}>Open workspace <ArrowUpRight size={15} /></button></nav><button className="menu-button" aria-label="Open menu"><Menu size={20} /></button></header>
-    {!workspace ? <><section className="hero" id="how"><div className="hero-copy"><p className="eyebrow"><span /> EDUCATIONAL HEALTH, MADE CLEAR</p><h1>Feel more informed.<br /><i>Ask better questions.</i></h1><p className="hero-lede">MediGuide helps you understand health information, prepare for appointments, and find the signal in the details. Grounded in trusted sources. Designed for the moments between visits.</p><div className="hero-actions"><button className="primary-button" onClick={() => setWorkspace(true)}>Start a private session <ArrowUpRight size={17} /></button><button className="text-button" onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}>See how it works <ChevronRight size={16} /></button></div><div className="hero-proof"><div className="proof-avatars"><span>J</span><span>M</span><span>A</span></div><span>Built for thoughtful health conversations</span></div></div><div className="hero-art"><div className="sun-disc" /><div className="art-line line-one" /><div className="art-line line-two" /><div className="art-note"><ShieldCheck size={18} /><span><strong>Evidence-led</strong><br />Answers cite their sources.</span></div><div className="art-card"><div className="mini-icon"><Stethoscope size={18} /></div><p>What would you like<br />to understand today?</p><span className="mini-cursor">⌁</span></div><div className="art-caption">A calmer place to begin</div></div></section><section className="trust-strip"><span>YOUR HEALTH, YOUR PACE</span><span><ShieldCheck size={16} /> Private by design</span><span><BookOpen size={16} /> Trusted sources</span><span><Sparkles size={16} /> No diagnosis. Just clarity.</span></section><section className="how-section" id="how-it-works"><div className="section-intro"><p className="eyebrow">A LITTLE MORE CLARITY</p><h2>Start wherever<br /><i>you are.</i></h2></div><div className="feature-list"><article><b>01</b><div><BookOpen size={22} /><h3>Ask without overthinking</h3><p>Get a plain-language explanation, with the boundaries and context that matter.</p></div></article><article><b>02</b><div><FileText size={22} /><h3>Bring the details</h3><p>Upload a health document or speak your question. Review everything before it goes anywhere.</p></div></article><article><b>03</b><div><ShieldCheck size={22} /><h3>Leave with better questions</h3><p>See the evidence, notice what is still unknown, and prepare for a conversation with your clinician.</p></div></article></div></section><section className="privacy-band" id="privacy"><div><p className="eyebrow">A QUIET PROMISE</p><h2>Your health information<br /><i>stays yours.</i></h2></div><p>MediGuide is designed to run locally, with privacy as a product feature rather than a footnote. You decide what to share, and you can clear your session when you are done.</p></section></> : <Workspace answer={answer} sources={sources} question={question} setQuestion={setQuestion} submit={submit} loading={loading} notice={notice} upload={upload} fileInput={fileInput} translate={translate} speak={speak} language={language} toggleVoice={toggleVoice} />}
-    <footer><span>© 2026 MediGuide AI</span><span>Educational support, never a diagnosis.</span><span>Built with care <span className="footer-dot">●</span></span></footer>
-  </main>;
+  if (!workspace) return <PremiumLanding onStart={() => setWorkspace(true)} />;
+  return <main className="product-shell"><header className="app-header"><button className="app-brand" onClick={() => setWorkspace(false)}><span className="brand-mark"><Sparkles size={15} /></span><span>MediGuide <em>AI</em></span></button><span className="header-context">Your private health education workspace</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Private local</button><button className="icon-button" title="Help"><HelpCircle size={18} /></button><button className="icon-button" title="Settings"><Settings size={18} /></button><button className="profile-button" title="Profile"><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation"><Menu size={20} /></button></header><div className="workspace-grid"><Sidebar view={view} setView={setView} onNew={clearSession} onPrivacy={() => setPrivacyOpen(true)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents document={document} previewUrl={documentPreviewUrl} dragging={documentDragging} onUpload={() => fileInput.current?.click()} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} onSelect={setSelectedSource} />}{view !== "documents" && view !== "visit" && <Composer question={question} setQuestion={setQuestion} onSubmit={sendQuestion} onKeyDown={handleComposerKey} onUpload={() => fileInput.current?.click()} onVoice={toggleVoice} recording={recording} loading={Boolean(loadingStage)} />}<input ref={fileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onFileChange} /></section><Evidence sources={sources} selected={selectedSource} onSelect={setSelectedSource} /></div>{privacyOpen && <Privacy onClose={() => setPrivacyOpen(false)} onClear={clearSession} />}{healthOpen && <Health health={health} onClose={() => setHealthOpen(false)} onRetry={checkHealth} />}</main>;
 }
 
-function Workspace(props: { answer: string; sources: Source[]; question: string; setQuestion: (value: string) => void; submit: (event?: FormEvent, preset?: string) => void; loading: boolean; notice: string; upload: (event: ChangeEvent<HTMLInputElement>) => void; fileInput: React.RefObject<HTMLInputElement | null>; translate: () => void; speak: () => void; language: string; toggleVoice: () => void }) {
-  const { answer, sources, question, setQuestion, submit, loading, notice, upload, fileInput, translate, speak, language, toggleVoice } = props;
-  const [view, setView] = useState<"conversation" | "documents" | "privacy">("conversation");
-  const startNew = () => { setQuestion(""); setView("conversation"); };
-  return <section className="workspace"><aside className="workspace-sidebar"><div className="workspace-label">YOUR SPACE</div><button className={view === "conversation" ? "side-active" : ""} onClick={startNew}><Sparkles size={16} /> New conversation</button><button className={view === "conversation" ? "" : "side-active"} onClick={() => setView("conversation")}><BookOpen size={16} /> Conversations <span>{answer ? 1 : 0}</span></button><button className={view === "documents" ? "side-active" : ""} onClick={() => setView("documents")}><FileText size={16} /> Documents</button><div className="side-bottom"><button className={view === "privacy" ? "side-active" : ""} onClick={() => setView("privacy")}><ShieldCheck size={16} /> Privacy</button><button><Globe2 size={16} /> Settings</button></div></aside><div className="chat-column">{view === "privacy" ? <div className="workspace-info"><p className="eyebrow">PRIVATE BY DESIGN</p><h2>Your session belongs to you.</h2><p>Questions, transcripts, and uploaded documents stay in this browser session. Clear the conversation whenever you are ready.</p><button className="primary-button" onClick={startNew}>Start a fresh session <ArrowUpRight size={17} /></button></div> : view === "documents" ? <div className="workspace-info"><p className="eyebrow">DOCUMENTS</p><h2>Bring the details.</h2><p>Upload a medical document for visible-text extraction. MediGuide will help you review what was found before you ask a question.</p><button className="primary-button" onClick={() => fileInput.current?.click()}>Upload a document <Paperclip size={17} /></button></div> : <><div className="workspace-heading"><div><p className="eyebrow">PRIVATE SESSION</p><h2>What would you like to understand?</h2></div><span className="status-chip"><span /> Local mode</span></div>{!answer && !loading ? <div className="starter-grid">{starters.map(([title, text, Icon]) => <button key={title} onClick={() => submit(undefined, text)}><span className="starter-icon"><Icon size={18} /></span><span><strong>{title}</strong><small>{text}</small></span><ChevronRight size={16} /></button>)}</div> : <div className="answer-area">{answer && <div className="answer-card"><div className="answer-top"><span className="assistant-tag"><Sparkles size={14} /> MEDIGUIDE</span><div className="answer-tools"><button onClick={speak} title="Read answer aloud"><Volume2 size={16} /></button><button onClick={translate} title={`Translate from ${language}`}><Globe2 size={16} /></button></div></div><div className="answer-body">{answer.split("\n").map((line, index) => <p key={index} className={line.startsWith("#") ? "answer-heading" : ""}>{line.replace(/^#+\s*/, "")}</p>)}</div></div>}{loading && <div className="loading-card"><Sparkles size={17} /> Searching approved sources and shaping your answer...</div>}</div>}<form className="composer" onSubmit={submit}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask a health-education question..." rows={3} /><div className="composer-bottom"><div><button type="button" onClick={() => fileInput.current?.click()} title="Upload a document"><Paperclip size={18} /></button><input ref={fileInput} type="file" accept="image/*,.pdf" hidden onChange={upload} /><button type="button" onClick={toggleVoice} title="Voice input"><Mic size={18} /></button><span>Review before sending</span></div><button className="send-button" disabled={loading || !question.trim()} aria-label="Send question"><ArrowUpRight size={19} /></button></div></form>{notice && <p className="notice"><ShieldCheck size={14} /> {notice}</p>}<p className="disclaimer">MediGuide provides general educational information, not diagnosis or treatment. In an emergency, contact local emergency services.</p></>}</div><aside className="evidence-column"><div className="evidence-heading"><div><p className="eyebrow">EVIDENCE</p><h3>Sources &amp; context</h3></div></div>{sources.length ? sources.map((source) => <article className="source-item" key={source.number}><span className="source-number">[{source.number}]</span><div><strong>{source.title}</strong><p>{source.publisher}</p><a href={source.url || "#"}>View source <ArrowUpRight size={12} /></a></div></article>) : <div className="empty-evidence"><BookOpen size={22} /><p>Your sources will appear here alongside each answer.</p><small>Evidence helps you see what is known, what is uncertain, and where to ask next.</small></div>}<div className="safety-note"><ShieldCheck size={17} /><div><strong>A note on safety</strong><p>Answers are reviewed for citation and medical-safety boundaries before they reach you.</p></div></div></aside></section>;
-}
+/* Legacy landing markup retained for reference; PremiumLanding is the public entry point. */
+
+function Sidebar({ view, setView, onNew, onPrivacy }: { view: View; setView: (view: View) => void; onNew: () => void; onPrivacy: () => void }) { const item = (target: View, label: string, Icon: LucideIcon) => <button className={view === target ? "nav-item active" : "nav-item"} onClick={() => setView(target)}><Icon size={17} />{label}</button>; return <aside className="sidebar"><div className="sidebar-label">WORKSPACE</div><button className="new-conversation" onClick={onNew}><Plus size={17} /> New conversation</button><nav>{item("conversation", "Conversations", HomeIcon)}{item("documents", "Documents", FileText)}{item("visit", "Visit preparation", Stethoscope)}</nav><div className="sidebar-label knowledge-label">KNOWLEDGE</div><nav>{item("sources", "Sources", BookOpen)}</nav><div className="sidebar-label system-label">SYSTEM</div><nav><button className="nav-item" onClick={onPrivacy}><ShieldCheck size={17} /> Privacy</button><button className="nav-item"><Settings size={17} /> Settings</button></nav><div className="sidebar-footer"><span className="status-dot" /> <div><strong>Private local mode</strong><small>Session-only storage</small></div></div></aside>; }
+
+function Conversation({ answer, sources, messages, loading, error, selectedSource, setSelectedSource, onRetry, onPreset, onAction }: { answer: string; sources: Source[]; question: string; messages: Message[]; loading: string; error: string; selectedSource: number | null; setSelectedSource: (value: number | null) => void; onRetry: () => void; onPreset: (prompt: string) => void; onAction: (action: "copy" | "listen" | "simple" | "questions") => void }) { const lastQuestion = [...messages].reverse().find((item) => item.role === "user"); return <div className="conversation-view"><div className="conversation-header"><div><p className="eyebrow">PRIVATE • LOCAL • EVIDENCE-SUPPORTED</p><h2>{answer ? "Your health question, clarified." : "What can I help you understand today?"}</h2>{!answer && <p>Ask a health question, review a document, use your voice, or prepare for an appointment.</p>}</div><div className="conversation-meta"><span className="response-count">{messages.filter((message) => message.role === "user").length} session {messages.filter((message) => message.role === "user").length === 1 ? "question" : "questions"}</span><span className="care-mode"><ShieldCheck size={13} /> Educational support</span></div></div>{!answer && !loading && <div className="quick-actions">{quickActions.map(([title, description, Icon, prompt]) => <button key={title} onClick={() => { onPreset(prompt); document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus(); }}><span className="quick-icon"><Icon size={18} /></span><span><strong>{title}</strong><small>{description}</small></span><ChevronRight size={17} /></button>)}</div>}{lastQuestion && <div className="user-question"><span>You asked</span><p>{lastQuestion.content}</p></div>}{error && <div className="service-error"><Activity size={19} /><div><strong>MediGuide couldn’t reach the local AI service.</strong><p>Your question has not been sent.</p></div><button onClick={onRetry}><RefreshCw size={15} /> Retry</button></div>}{loading && <div className="processing"><Sparkles size={17} /><span>{loading}</span><i /><i /><i /></div>}{answer && <Answer answer={answer} sources={sources} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onAction={onAction} />}</div>; }
+
+function Answer({ answer, sources, selectedSource, setSelectedSource, onAction }: { answer: string; sources: Source[]; selectedSource: number | null; setSelectedSource: (value: number | null) => void; onAction: (action: "copy" | "listen" | "simple" | "questions") => void }) { const lines = answer.split("\n"); return <article className="answer-document"><div className="answer-kicker"><span><Sparkles size={14} /> MEDIGUIDE</span><small>Evidence checked</small></div><div className="answer-content">{lines.map((line, index) => { const heading = line.startsWith("#"); const parts = line.split(/(\[\d+\])/g); return <p className={heading ? "answer-heading" : ""} key={index}>{parts.map((part, partIndex) => /^\[\d+\]$/.test(part) ? <button className={selectedSource === Number(part.replace(/\D/g, "")) ? "citation selected" : "citation"} onClick={() => setSelectedSource(Number(part.replace(/\D/g, "")))} key={partIndex}>{part}</button> : part.replace(/^#+\s*/, ""))}</p>; })}</div><div className="response-actions"><button onClick={() => onAction("copy")}><Clipboard size={14} /> Copy</button><button onClick={() => onAction("listen")}><Volume2 size={14} /> Listen</button><button onClick={() => onAction("simple")}><Sparkles size={14} /> Explain simply</button><button onClick={() => onAction("questions")}><Stethoscope size={14} /> Questions for clinician</button><button onClick={() => setSelectedSource(sources.length ? sources[0].number : null)}><BookOpen size={14} /> Show sources</button></div></article>; }
+
+function Composer({ question, setQuestion, onSubmit, onKeyDown, onUpload, onVoice, recording, loading }: { question: string; setQuestion: (value: string) => void; onSubmit: (event?: FormEvent) => void; onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void; onUpload: () => void; onVoice: () => void; recording: boolean; loading: boolean }) { return <form className="composer" onSubmit={onSubmit} onDragOver={(event) => event.preventDefault()}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={onKeyDown} placeholder="Ask a health question, explain a document, or prepare for a visit..." rows={3} /><div className="composer-footer"><div><button type="button" onClick={onUpload}><Paperclip size={16} /> Attach</button><button type="button" className={recording ? "recording" : ""} onClick={onVoice}><Mic size={16} /> {recording ? "Listening" : "Voice"}</button><span>Enter to send · Shift + Enter for a new line</span></div><button className="send-button" disabled={loading || !question.trim()} aria-label="Send"><ArrowUp size={20} /></button></div></form>; }
+
+function Evidence({ sources, selected, onSelect }: { sources: Source[]; selected: number | null; onSelect: (value: number | null) => void }) { return <aside className="evidence"><div className="evidence-top"><div><p className="eyebrow">EVIDENCE</p><h3>Sources &amp; context</h3></div><button className="icon-button" title="Search sources"><BookOpen size={17} /></button></div>{sources.length ? <><div className="support-level"><span>Evidence support</span><strong>{sources.length > 2 ? "STRONG" : sources.length === 2 ? "MODERATE" : "LIMITED"}</strong></div>{sources.map((source) => <button className={selected === source.number ? "source-card selected" : "source-card"} key={source.number} onClick={() => onSelect(source.number)}><span className="source-number">[{source.number}]</span><span><strong>{source.publisher}</strong><b>{source.title}</b><small>{source.reviewed ? `Reviewed ${source.reviewed}` : "Approved knowledge source"}</small><em>Relevant passage available <ArrowUpRight size={12} /></em></span></button>)}</> : <div className="evidence-empty"><BookOpen size={22} /><strong>Sources &amp; evidence</strong><p>Trusted sources used for your answer will appear here.</p></div>}<div className="evidence-note"><ShieldCheck size={16} /><span>Sources are retrieved from the approved local knowledge base.</span></div></aside>; }
+
+function Documents({ document, previewUrl, dragging, onUpload, onDrop, onDragEnter, onDragLeave, loading, error }: { document: { name: string; data: Record<string, unknown> } | null; previewUrl: string | null; dragging: boolean; onUpload: () => void; onDrop: (event: DragEvent<HTMLDivElement>) => void; onDragEnter: () => void; onDragLeave: () => void; loading: string; error: string }) { return <div className="workflow-view"><div className="workflow-heading-row"><div><p className="eyebrow">DOCUMENT REVIEW</p><h2>Understand the details.</h2><p className="workflow-lead">Review visible information before it becomes part of a question.</p></div><span className="workflow-badge"><ShieldCheck size={14} /> Human review first</span></div>{!document && !loading && <div className={dragging ? "upload-zone is-dragging" : "upload-zone"} onDrop={onDrop} onDragEnter={(event) => { event.preventDefault(); onDragEnter(); }} onDragOver={(event) => event.preventDefault()} onDragLeave={onDragLeave}><span className="upload-art"><FileText size={25} /><span><ImageIcon size={14} /></span></span><strong>Upload a health document</strong><span>Drop an image or PDF here, or choose a file</span><small>PDF, PNG, JPG, WEBP · Temporary session file</small><button className="forest-button" onClick={onUpload}>Choose file <Paperclip size={16} /></button></div>}{loading && <div className="processing large"><Sparkles size={18} /> {loading}<i /><i /><i /></div>}{error && <div className="service-error"><Activity size={19} /><div><strong>{error}</strong><p>Your document has not been added.</p></div></div>}{document && <div className="document-review"><div className="document-meta"><FileText size={18} /><span><strong>{document.name}</strong><small>Ready for review · temporary session file</small></span><Check size={18} /></div><div className="extraction-grid"><div className="document-preview">{previewUrl ? <img src={previewUrl} alt="Uploaded health document preview" /> : <FileText size={38} />}<span>{previewUrl ? "Uploaded image" : "Original document"}</span><small>Check names, values, units, and dates</small></div><div className="extracted-fields"><p className="eyebrow">EXTRACTED INFORMATION</p>{Object.entries(document.data).filter(([key]) => key !== "visible_text" && key !== "uncertain_text").slice(0, 5).map(([key, value]) => <label key={key}>{key.replaceAll("_", " ")}<input value={typeof value === "string" ? value : JSON.stringify(value)} readOnly /></label>)}<div className="review-key"><span>Clearly visible</span><span>Needs review</span><span>Could not read</span></div><label className="confirm"><input type="checkbox" /> I reviewed names, values, units, and dates.</label></div></div></div>}</div>; }
+
+function Visit({ fields, setFields, onGenerate }: { fields: Record<string, string>; setFields: (value: Record<string, string>) => void; onGenerate: () => void }) { const names = ["Main concern", "Symptoms", "Symptom timeline", "Duration", "Severity", "Triggers", "Medications entered by user", "Questions for clinician", "Missing information"]; return <div className="workflow-view"><p className="eyebrow">VISIT PREPARATION</p><h2>Make the visit count.</h2><p className="workflow-lead">Organize patient-provided information and turn uncertainty into useful questions.</p><div className="visit-form">{names.map((name) => <label key={name}>{name}<textarea rows={name === "Symptoms" || name === "Questions for clinician" ? 3 : 2} value={fields[name] || ""} onChange={(event) => setFields({ ...fields, [name]: event.target.value })} placeholder={`Add ${name.toLowerCase()}...`} /></label>)}</div><p className="patient-note"><ShieldCheck size={16} /> Patient-provided information — not a diagnosis.</p><button className="forest-button" onClick={onGenerate}>Generate visit summary <ArrowUpRight size={16} /></button></div>; }
+
+function Sources({ sources, onSelect }: { sources: Source[]; onSelect: (value: number) => void }) { return <div className="workflow-view"><p className="eyebrow">KNOWLEDGE BASE</p><h2>Approved sources.</h2><p className="workflow-lead">Trusted local retrieval keeps answers grounded and transparent.</p><div className="source-list">{sources.length ? sources.map((source) => <button key={source.number} onClick={() => onSelect(source.number)}><span>[{source.number}]</span><div><strong>{source.publisher}</strong><b>{source.title}</b><small>{source.reviewed || "Approved source"}</small></div><ChevronRight size={17} /></button>) : <div className="empty-panel"><BookOpen size={23} /><p>Sources will appear here after your first evidence-supported answer.</p></div>}</div></div>; }
+
+function Privacy({ onClose, onClear }: { onClose: () => void; onClear: () => void }) { return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer" onClick={(event) => event.stopPropagation()}><button className="drawer-close" onClick={onClose}><X size={18} /></button><p className="eyebrow">PRIVACY CENTER</p><h2>Private local processing.</h2><p>Your session is designed to stay close to your device.</p><ul><li><Check size={16} /> Local language model</li><li><Check size={16} /> Local speech transcription</li><li><Check size={16} /> Local document processing</li><li><Check size={16} /> Trusted local retrieval</li><li><Check size={16} /> Chat persistence disabled</li><li><Check size={16} /> Temporary audio cleanup</li></ul><div className="drawer-warning"><strong>Public demo mode</strong><span>Do not enter identifying health information.</span></div><button className="drawer-action" onClick={onClear}><Trash2 size={16} /> Clear session</button><button className="drawer-action secondary"><RefreshCw size={16} /> Clear temporary files</button></aside></div>; }
+
+function Health({ health, onClose, onRetry }: { health: HealthResponse | null; onClose: () => void; onRetry: () => void }) { return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer health-drawer" onClick={(event) => event.stopPropagation()}><button className="drawer-close" onClick={onClose}><X size={18} /></button><p className="eyebrow">SYSTEM STATUS</p><h2>{health?.status === "ok" ? "All systems ready." : "Some services need attention."}</h2><p>{health ? `${health.ready} of ${health.total} services ready.` : "Checking the local AI service..."}</p><div className="health-list">{Object.entries(health?.statuses || {}).map(([key, value]) => <div key={key}><span className={value.status === "ready" ? "status-dot" : "status-dot off"} /><strong>{healthLabels[key] || key}</strong><small>{value.detail}</small></div>)}</div><button className="drawer-action" onClick={onRetry}><RefreshCw size={16} /> Check again</button></aside></div>; }
