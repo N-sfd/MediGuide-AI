@@ -6,8 +6,8 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
-  ChevronDown,
   FileText,
+  Pill,
   Play,
   ShieldCheck,
   Sparkles,
@@ -102,8 +102,8 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
             <i>Ask better questions.</i>
           </h1>
           <p>
-            MediGuide helps you understand health information, review documents, use your voice, and prepare for
-            appointments with trusted educational evidence.
+            MediGuide helps you understand health information, review medical documents and medication labels, use your
+            voice, and prepare for appointments with trusted evidence alongside you.
           </p>
           <div className="hero-actions">
             <button className="forest-button" onClick={onStart}>
@@ -113,176 +113,107 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
               className="quiet-button"
               onClick={() => document.getElementById("how-medi-guide-works")?.scrollIntoView({ behavior: "smooth" })}
             >
-              See how MediGuide works <ArrowUpRight size={15} />
+              See how it works
             </button>
           </div>
           <ul className="hero-trust">
             <li>
-              <Check size={14} /> Private
+              <Check size={14} /> Private by default
             </li>
             <li>
               <Check size={14} /> Local processing
             </li>
             <li>
-              <Check size={14} /> Cited answers
+              <Check size={14} /> Evidence citations
             </li>
           </ul>
+          <div className="hero-chips" aria-label="Example starting points">
+            <button type="button" onClick={onStart}>
+              Understand a medication label
+            </button>
+            <button type="button" onClick={onStart}>
+              Review lab results
+            </button>
+            <button
+              type="button"
+              onClick={() => document.getElementById("how-medi-guide-works")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Prepare for an appointment
+            </button>
+          </div>
         </div>
 
-        <div className="hero-product-stage reveal reveal-delay">
-          <div className="product-browser hero-star">
-            <div className="browser-chrome">
-              <div className="browser-dots" aria-hidden>
-                <i />
-                <i />
-                <i />
-              </div>
-              <div className="browser-title">
-                <strong>MediGuide</strong>
-                <span>Lab report explanation</span>
-              </div>
-              <div className="browser-status">
-                <span className="status-dot" /> Private local
+        <div className="hero-product-stage hero-med-stage reveal reveal-delay">
+          <figure className="hero-med-photo">
+            <img
+              src="/assets/mediguide_medication_hero.png"
+              alt="Adult at home reviewing a generic prescription medication container beside a laptop"
+            />
+          </figure>
+
+          <article className="med-explain-card" aria-label="MediGuide medication explanation preview">
+            <header>
+              <Sparkles size={14} />
+              <strong>Medication explained</strong>
+              <small>Educational</small>
+            </header>
+            <div className="med-identity">
+              <span>Amoxicillin</span>
+              <strong>500 mg</strong>
+            </div>
+            <div className="med-block">
+              <h4>General information</h4>
+              <p>Amoxicillin is an antibiotic used for certain bacterial infections.</p>
+            </div>
+            <div className="med-block">
+              <h4>Things to understand</h4>
+              <ul>
+                <li>How it is generally taken</li>
+                <li>Common side effects</li>
+                <li>Important precautions</li>
+              </ul>
+            </div>
+            <div className="med-evidence-row">
+              <span>Supported by trusted sources</span>
+              <div className="cite-pills">
+                <span>[1]</span>
+                <span>[2]</span>
+                <span>[3]</span>
               </div>
             </div>
-
-            <div className="product-grid">
-              <aside className="product-panel document-panel">
-                <p className="panel-kicker">Document</p>
-                <div className="doc-file">
-                  <FileText size={16} />
-                  <span>
-                    <strong>Lab_Report.pdf</strong>
-                    <small>2 pages</small>
-                  </span>
-                </div>
-                <div className="lab-thumb">
-                  <img src="/assets/lab_report_thumbnail.png" alt="Synthetic laboratory report preview" />
-                </div>
-                <p className="panel-kicker key-values-label">Key values</p>
-                <ul className="key-values">
-                  <li>
-                    <span>Hemoglobin</span>
-                    <strong>13.2 g/dL</strong>
-                  </li>
-                  <li>
-                    <span>WBC</span>
-                    <strong>6.2 ×10⁹/L</strong>
-                  </li>
-                  <li>
-                    <span>Platelets</span>
-                    <strong>248 ×10⁹/L</strong>
-                  </li>
-                </ul>
-              </aside>
-
-              <section className="product-panel explain-panel">
-                <h3>
-                  <Sparkles size={14} /> Your results, explained
-                </h3>
-                <p className="explain-lead">
-                  Hemoglobin is a protein in red blood cells that carries oxygen throughout the body.
-                </p>
-                <div className="result-card">
-                  <div>
-                    <span>Hemoglobin</span>
-                    <strong>13.2 g/dL</strong>
-                  </div>
-                  <div>
-                    <span>Status</span>
-                    <em>Within the listed reference range</em>
-                  </div>
-                </div>
-                <div className="means-block">
-                  <h4>What this means</h4>
-                  <p>
-                    This value sits inside the reference interval shown on the report. Reference ranges can vary by lab,
-                    age, and sex. Your clinician can interpret this result in the context of your health history.
-                  </p>
-                </div>
-                <div className="clinician-qs">
-                  <h4>Questions to ask your clinician</h4>
-                  <ol>
-                    <li>Are there any trends in my results over time?</li>
-                    <li>Could medications or diet affect this result?</li>
-                    <li>Do I need follow-up testing?</li>
-                  </ol>
-                </div>
-              </section>
-
-              <aside className="product-panel evidence-panel">
-                <div className="evidence-head">
-                  <p className="panel-kicker">Evidence</p>
-                  <strong>Strong support</strong>
-                </div>
-                <article className="source-mini">
-                  <b>[1]</b>
-                  <div>
-                    <strong>MedlinePlus</strong>
-                    <span>Hemoglobin information</span>
-                    <small>Reviewed Aug 2025</small>
-                  </div>
-                </article>
-                <article className="source-mini">
-                  <b>[2]</b>
-                  <div>
-                    <strong>CDC</strong>
-                    <span>Blood health education</span>
-                    <small>Reviewed Mar 2025</small>
-                  </div>
-                </article>
-                <article className="source-mini">
-                  <b>[3]</b>
-                  <div>
-                    <strong>FDA</strong>
-                    <span>Consumer health information</span>
-                    <small>Reviewed Jan 2025</small>
-                  </div>
-                </article>
-              </aside>
-            </div>
-
-            <div className="listen-bar">
-              <div className="listen-main">
-                <button type="button" className="listen-play" aria-label="Play explanation">
-                  <Play size={13} fill="currentColor" />
-                </button>
-                <div>
-                  <strong>Listen to explanation</strong>
-                  <div className="waveform" aria-hidden>
-                    {Array.from({ length: 32 }).map((_, i) => (
-                      <i key={i} style={{ ["--h" as string]: `${28 + ((i * 17) % 48)}%` }} />
-                    ))}
-                  </div>
+            <div className="med-listen">
+              <button type="button" className="listen-play" aria-label="Play explanation">
+                <Play size={12} fill="currentColor" />
+              </button>
+              <div>
+                <strong>Listen to explanation</strong>
+                <div className="waveform" aria-hidden>
+                  {Array.from({ length: 22 }).map((_, i) => (
+                    <i key={i} style={{ ["--h" as string]: `${30 + ((i * 19) % 50)}%` }} />
+                  ))}
                 </div>
               </div>
-              <label className="listen-lang">
-                <span>Language</span>
-                <select defaultValue="English" aria-label="Explanation language">
-                  <option>English</option>
-                  <option>Spanish</option>
-                  <option>French</option>
-                </select>
-                <ChevronDown size={12} />
-              </label>
             </div>
-          </div>
+          </article>
 
-          <div className="hero-badge verified">
-            <FileText size={17} />
+          <div className="hero-badge med-verify">
+            <Pill size={17} />
             <span>
-              <strong>Document verified</strong>
-              <small>Lab report text reviewed</small>
+              <strong>Medication label</strong>
+              <small>
+                Amoxicillin · 500 mg
+                <br />
+                Needs your confirmation
+              </small>
             </span>
+            <em>Review</em>
+          </div>
+          <div className="hero-badge med-evidence">
             <Check size={16} />
-          </div>
-          <div className="hero-badge private">
-            <ShieldCheck size={17} />
             <span>
-              <strong>Processed privately</strong>
-              <small>On-device · Temporary files cleared</small>
+              <strong>Evidence checked</strong>
+              <small>3 trusted educational sources</small>
             </span>
-            <span className="status-dot" />
           </div>
         </div>
       </section>

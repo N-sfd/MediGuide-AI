@@ -62,12 +62,12 @@
 /* —— Hero —— */
 .premium-hero {
   max-width: 1320px;
-  min-height: 680px;
+  min-height: 640px;
   margin: auto;
   padding: 40px 5vw 36px;
   display: grid;
-  grid-template-columns: minmax(280px, 38%) minmax(0, 62%);
-  gap: 40px;
+  grid-template-columns: minmax(280px, 44%) minmax(0, 56%);
+  gap: 36px;
   align-items: center;
   background:
     radial-gradient(900px 420px at 92% 12%, #dcefe4 0%, transparent 55%),
@@ -129,7 +129,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  margin: 20px 0 0;
+  margin: 18px 0 0;
   padding: 0;
   list-style: none;
   color: var(--forest);
@@ -142,9 +142,200 @@
   gap: 6px;
 }
 
+.hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.hero-chips button {
+  border: 1px solid #d2ddd6;
+  border-radius: 999px;
+  background: #fff;
+  color: #4f6359;
+  padding: 7px 12px;
+  font: 600 11px var(--pl-sans);
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.hero-chips button:hover {
+  border-color: #a9c7b6;
+  color: var(--forest);
+  background: #f3faf6;
+}
+
 .hero-product-stage {
   position: relative;
   min-width: 0;
+}
+
+/* Medication lifestyle hero composition */
+.hero-med-stage {
+  isolation: isolate;
+}
+
+.hero-med-photo {
+  margin: 0;
+  overflow: hidden;
+  border-radius: 28px;
+  aspect-ratio: 4 / 3;
+  background: #e6ebe7;
+  box-shadow: 0 24px 55px #17221f1c;
+}
+
+.hero-med-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 28%;
+  display: block;
+}
+
+.med-explain-card {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 2;
+  width: min(300px, 58%);
+  padding: 14px 14px 12px;
+  border: 1px solid #d7e1db;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px #17221f22;
+  backdrop-filter: blur(8px);
+  color: var(--ink);
+}
+
+.med-explain-card > header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  color: var(--forest);
+  font: 700 11px var(--pl-sans);
+}
+
+.med-explain-card > header small {
+  margin-left: auto;
+  color: var(--muted);
+  font: 700 9px var(--pl-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.med-identity {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 11px;
+  border: 1px solid #d8e8df;
+  border-radius: 11px;
+  background: #f4faf7;
+}
+
+.med-identity span {
+  font: 700 13px var(--pl-sans);
+}
+
+.med-identity strong {
+  color: var(--forest-dark);
+  font: 800 14px var(--pl-sans);
+}
+
+.med-block {
+  margin-bottom: 10px;
+}
+
+.med-block h4 {
+  margin: 0 0 4px;
+  font: 800 9px var(--pl-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #87958e;
+}
+
+.med-block p {
+  margin: 0;
+  color: #52645b;
+  font: 12px / 1.45 var(--pl-sans);
+}
+
+.med-block ul {
+  margin: 0;
+  padding-left: 16px;
+  color: #52645b;
+  font: 12px / 1.45 var(--pl-sans);
+}
+
+.med-block li + li {
+  margin-top: 2px;
+}
+
+.med-evidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e5ebe7;
+  color: #52645b;
+  font: 600 11px var(--pl-sans);
+}
+
+.med-listen {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  background: #eef6f1;
+}
+
+.med-listen strong {
+  display: block;
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.hero-badge.med-verify {
+  left: auto;
+  right: 14px;
+  top: 14px;
+  bottom: auto;
+  max-width: 220px;
+  animation-delay: 0s;
+}
+
+.hero-badge.med-verify em {
+  font-style: normal;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: #eef6f1;
+  color: var(--forest);
+  font: 800 10px var(--pl-sans);
+}
+
+.hero-badge.med-evidence {
+  left: auto;
+  right: 14px;
+  top: auto;
+  bottom: 18px;
+  border-color: #c5dceb;
+  background: linear-gradient(180deg, #f7fbff, #eef7f3);
+  color: var(--forest);
+  animation-delay: 0.7s;
+}
+
+.hero-badge.med-evidence strong {
+  color: #1f4f6d;
 }
 
 .product-browser,
@@ -154,14 +345,6 @@
   border-radius: var(--frame-radius);
   background: #fbfdfb;
   box-shadow: var(--frame-shadow);
-}
-
-.hero-star {
-  transform: scale(1.02);
-  transform-origin: center right;
-  box-shadow:
-    0 30px 70px #17221f22,
-    0 1px 0 #fff inset;
 }
 
 .browser-chrome {
@@ -520,7 +703,7 @@
   gap: 9px;
   padding: 11px 13px;
   border: 1px solid #d5ddd7;
-  border-radius: 14px;
+  border-radius: 16px;
   background: #fff;
   box-shadow: 0 12px 28px #17221f16;
   color: var(--forest);
@@ -529,6 +712,7 @@
 .hero-badge span:nth-child(2) {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 .hero-badge strong {
   font-size: 12px;
@@ -537,15 +721,7 @@
 .hero-badge small {
   font-size: 10px;
   color: var(--muted);
-}
-.hero-badge.verified {
-  left: -18px;
-  top: 16%;
-}
-.hero-badge.private {
-  right: -14px;
-  bottom: 12%;
-  animation-delay: 0.8s;
+  line-height: 1.35;
 }
 
 .feature-proof-strip {
@@ -1154,24 +1330,15 @@
 
 @media (max-width: 1100px) {
   .premium-hero {
-    grid-template-columns: 40% 60%;
+    grid-template-columns: minmax(260px, 42%) minmax(0, 58%);
     gap: 28px;
   }
-  .hero-star {
-    transform: none;
+  .med-explain-card {
+    width: min(270px, 62%);
   }
-  .product-grid {
-    grid-template-columns: 1fr 1.15fr;
-    min-height: 420px;
-  }
-  .evidence-panel {
-    display: none;
-  }
-  .hero-badge.verified {
-    left: 6px;
-  }
-  .hero-badge.private {
-    right: 6px;
+  .hero-badge.med-verify,
+  .hero-badge.med-evidence {
+    right: 10px;
   }
 }
 
@@ -1205,6 +1372,10 @@
   .section-shell {
     padding: 48px 5vw;
   }
+  .hero-badge.med-verify,
+  .hero-badge.med-evidence {
+    display: none;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1225,27 +1396,21 @@
   .hero-actions .quiet-button {
     justify-content: center;
   }
-  .product-grid {
-    grid-template-columns: 1fr;
-    min-height: 0;
+  .hero-med-stage {
+    display: grid;
+    gap: 12px;
   }
-  .document-panel,
-  .explain-panel {
-    border-right: 0;
-    border-bottom: 1px solid #dde6e0;
+  .hero-med-photo {
+    border-radius: 20px;
+    aspect-ratio: 4 / 3;
   }
-  .listen-bar {
-    flex-direction: column;
-    align-items: stretch;
+  .med-explain-card {
+    position: static;
+    width: 100%;
+    box-shadow: 0 10px 24px #17221f12;
   }
   .hero-badge {
-    position: static;
-    margin-top: 10px;
-    animation: none;
-  }
-  .hero-product-stage {
-    display: grid;
-    gap: 10px;
+    display: none;
   }
   .feature-proof-strip {
     padding: 12px 16px;
