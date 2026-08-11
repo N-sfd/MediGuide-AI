@@ -50,14 +50,14 @@ EMBEDDING_MODEL_NAME = os.getenv(
 RAG_TOP_K = int(
     os.getenv(
         "RAG_TOP_K",
-        "5",
+        "6",
     )
 )
 
 RAG_MAX_DISTANCE = float(
     os.getenv(
         "RAG_MAX_DISTANCE",
-        "0.65",
+        "1.2",
     )
 )
 

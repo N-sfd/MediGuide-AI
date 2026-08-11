@@ -59,6 +59,62 @@
   margin: 22px 0 8px;
 }
 
+.covered-topics {
+  margin: 8px 0 0;
+  max-width: 720px;
+  color: var(--muted);
+  font: 12px / 1.5 var(--sans);
+}
+
+.topic-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.topic-chip-row button {
+  border: 1px solid #d2ddd6;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--forest);
+  padding: 7px 12px;
+  font: 700 11px var(--sans);
+}
+
+.topic-chip-row button:hover {
+  border-color: #a9c7b6;
+  background: #f3faf6;
+}
+
+.limited-evidence {
+  border-color: #d7e1dc;
+  background: #f7faf8;
+}
+
+.limited-evidence-body {
+  padding: 6px 2px 4px;
+}
+
+.limited-evidence-body h3 {
+  margin: 0 0 8px;
+  font: 600 22px / 1.2 var(--serif);
+  color: var(--forest-dark);
+}
+
+.limited-evidence-body p {
+  margin: 0 0 12px;
+  color: #52645b;
+  font: 14px / 1.55 var(--sans);
+}
+
+.limited-evidence-body ul {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: #52645b;
+  font: 13px / 1.5 var(--sans);
+}
+
 .capability-rail button {
   display: grid;
   gap: 8px;

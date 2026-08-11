@@ -1,0 +1,24 @@
+CBC Lab Tests Basics
+
+A complete blood count, or CBC, is a common blood test that measures several
+parts of the blood. Educational materials often describe red blood cells, white
+blood cells, platelets, hemoglobin, and hematocrit.
+
+Hemoglobin is a protein in red blood cells that carries oxygen throughout the
+body. A hemoglobin result is usually reported with a unit such as g/dL and a
+reference range from the laboratory that performed the test.
+
+White blood cells help the body respond to infection and inflammation. Platelets
+help blood clot. Each lab report should be read with its own reference ranges,
+because ranges can vary by lab method, age, and sex.
+
+When reviewing a lab report, check names, values, units, dates, and reference
+ranges carefully. A value inside or outside a listed range still needs clinical
+interpretation.
+
+Questions people often prepare for a clinician include whether results have
+changed over time, whether medications or illness could affect the value, and
+whether follow-up testing is needed.
+
+This information is educational and is not a diagnosis or personalized lab
+interpretation.

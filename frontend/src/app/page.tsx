@@ -15,9 +15,16 @@ type View = "conversation" | "documents" | "visit" | "sources";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "");
 const API_CONFIGURATION_MESSAGE = "The deployed frontend has no AI service URL. Set NEXT_PUBLIC_API_URL to the HTTPS address of the FastAPI backend and redeploy.";
 const quickActions = [
-  ["Ask a health question", "Get a clear, evidence-supported explanation.", BookOpen, "What would you like to understand about your health?"],
-  ["Understand a document", "Review visible information before you reason from it.", FileText, "Help me understand this health document in plain language."],
-  ["Prepare for a visit", "Organize what you want to ask a clinician.", Stethoscope, "Help me prepare questions for my next healthcare visit."],
+  ["Blood pressure", "Systolic, diastolic, and why it matters.", BookOpen, "What is blood pressure?"],
+  ["Lab results", "Understand hemoglobin and CBC basics.", FileText, "What is hemoglobin in a CBC lab test?"],
+  ["Medication labels", "Review antibiotic and label basics.", Stethoscope, "What should I understand about amoxicillin and medication labels?"],
+] as const;
+
+const topicSuggestions = [
+  ["Blood pressure", "What is blood pressure?"],
+  ["Lab results", "What is hemoglobin in a CBC lab test?"],
+  ["Medication labels", "What should I understand about medication labels?"],
+  ["Prepare for a visit", "How should I prepare for a healthcare appointment?"],
 ] as const;
 const healthLabels: Record<string, string> = { fastapi: "FastAPI", ollama: "Ollama", text_model: "Text model", vision_model: "Vision model", embedding_model: "Embedding model", vector_store: "Vector store", whisper: "Whisper", piper: "Piper TTS", translation_model: "Translation model" };
 
@@ -133,10 +140,10 @@ function Conversation({ answer, sources, messages, loading, error, selectedSourc
       </div>
     </div>
     {empty && <div className="capability-rail" aria-label="Workspace capabilities">
-      <button type="button" onClick={() => { onPreset("What would you like to understand about your health?"); document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus(); }}>
+      <button type="button" onClick={() => { onPreset("What is diabetes in plain language?"); document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus(); }}>
         <span className="quick-icon"><BookOpen size={18} /></span>
         <strong>Ask with evidence</strong>
-        <small>Plain-language answers with citations</small>
+        <small>Try a topic in the approved knowledge base</small>
       </button>
       <button type="button" onClick={() => { onOpenView("documents"); onUpload(); }}>
         <span className="quick-icon"><FileText size={18} /></span>
@@ -154,15 +161,49 @@ function Conversation({ answer, sources, messages, loading, error, selectedSourc
         <small>Turn notes into useful questions</small>
       </button>
     </div>}
+    {empty && <p className="covered-topics">Demo topics include blood pressure, cholesterol, diabetes, CBC lab tests, medication labels, antibiotics, fever, allergies, and appointment preparation — plus the approved CDC/NIH sources already in the knowledge base.</p>}
+    {empty && <div className="topic-chip-row" aria-label="Suggested topics">
+      {topicSuggestions.map(([label, prompt]) => (
+        <button type="button" key={label} onClick={() => { onPreset(prompt); void (document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus()); }}>
+          {label}
+        </button>
+      ))}
+    </div>}
     {empty && <div className="quick-actions">{quickActions.map(([title, description, Icon, prompt]) => <button key={title} onClick={() => { onPreset(prompt); document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus(); }}><span className="quick-icon"><Icon size={18} /></span><span><strong>{title}</strong><small>{description}</small></span><ChevronRight size={17} /></button>)}</div>}
     {lastQuestion && <div className="user-question"><span>You asked</span><p>{lastQuestion.content}</p></div>}
     {error && <div className="service-error"><Activity size={19} /><div><strong>MediGuide couldn’t reach the local AI service.</strong><p>Your question has not been sent.</p></div><button onClick={onRetry}><RefreshCw size={15} /> Retry</button></div>}
     {loading && <div className="processing"><Sparkles size={17} /><span>{loading}</span><i /><i /><i /></div>}
-    {answer && <Answer answer={answer} sources={sources} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onAction={onAction} />}
+    {answer && <Answer answer={answer} sources={sources} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onAction={onAction} onPreset={onPreset} onOpenView={onOpenView} />}
   </div>;
 }
 
-function Answer({ answer, sources, selectedSource, setSelectedSource, onAction }: { answer: string; sources: Source[]; selectedSource: number | null; setSelectedSource: (value: number | null) => void; onAction: (action: "copy" | "listen" | "simple" | "questions") => void }) { const lines = answer.split("\n"); return <article className="answer-document"><div className="answer-kicker"><span><Sparkles size={14} /> MEDIGUIDE</span><small>Evidence checked</small></div><div className="answer-content">{lines.map((line, index) => { const heading = line.startsWith("#"); const parts = line.split(/(\[\d+\])/g); return <p className={heading ? "answer-heading" : ""} key={index}>{parts.map((part, partIndex) => /^\[\d+\]$/.test(part) ? <button className={selectedSource === Number(part.replace(/\D/g, "")) ? "citation selected" : "citation"} onClick={() => setSelectedSource(Number(part.replace(/\D/g, "")))} key={partIndex}>{part}</button> : part.replace(/^#+\s*/, ""))}</p>; })}</div><div className="response-actions"><button onClick={() => onAction("copy")}><Clipboard size={14} /> Copy</button><button onClick={() => onAction("listen")}><Volume2 size={14} /> Listen</button><button onClick={() => onAction("simple")}><Sparkles size={14} /> Explain simply</button><button onClick={() => onAction("questions")}><Stethoscope size={14} /> Questions for clinician</button><button onClick={() => setSelectedSource(sources.length ? sources[0].number : null)}><BookOpen size={14} /> Show sources</button></div></article>; }
+function Answer({ answer, sources, selectedSource, setSelectedSource, onAction, onPreset, onOpenView }: { answer: string; sources: Source[]; selectedSource: number | null; setSelectedSource: (value: number | null) => void; onAction: (action: "copy" | "listen" | "simple" | "questions") => void; onPreset: (prompt: string) => void; onOpenView: (view: View) => void }) {
+  const limited = /Limited trusted information available|Not enough trusted information found/i.test(answer);
+  if (limited) {
+    return <article className="answer-document limited-evidence">
+      <div className="answer-kicker"><span><ShieldCheck size={14} /> MEDIGUIDE</span><small>Safety check</small></div>
+      <div className="limited-evidence-body">
+        <h3>Limited trusted information available</h3>
+        <p>MediGuide couldn’t find enough approved source material to answer this question confidently.</p>
+        <ul>
+          <li>Ask a more specific question</li>
+          <li>Review one of the available topics</li>
+          <li>Add a trusted source to the knowledge base</li>
+        </ul>
+        <div className="topic-chip-row">
+          {topicSuggestions.map(([label, prompt]) => (
+            <button type="button" key={label} onClick={() => {
+              if (label === "Prepare for a visit") onOpenView("visit");
+              else onPreset(prompt);
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </article>;
+  }
+  const lines = answer.split("\n");
+  return <article className="answer-document"><div className="answer-kicker"><span><Sparkles size={14} /> MEDIGUIDE</span><small>Evidence checked</small></div><div className="answer-content">{lines.map((line, index) => { const heading = line.startsWith("#"); const parts = line.split(/(\[\d+\])/g); return <p className={heading ? "answer-heading" : ""} key={index}>{parts.map((part, partIndex) => /^\[\d+\]$/.test(part) ? <button className={selectedSource === Number(part.replace(/\D/g, "")) ? "citation selected" : "citation"} onClick={() => setSelectedSource(Number(part.replace(/\D/g, "")))} key={partIndex}>{part}</button> : part.replace(/^#+\s*/, ""))}</p>; })}</div><div className="response-actions"><button onClick={() => onAction("copy")}><Clipboard size={14} /> Copy</button><button onClick={() => onAction("listen")}><Volume2 size={14} /> Listen</button><button onClick={() => onAction("simple")}><Sparkles size={14} /> Explain simply</button><button onClick={() => onAction("questions")}><Stethoscope size={14} /> Questions for clinician</button><button onClick={() => setSelectedSource(sources.length ? sources[0].number : null)}><BookOpen size={14} /> Show sources</button></div></article>;
+}
 
 function Composer({ question, setQuestion, onSubmit, onKeyDown, onUpload, onVoice, recording, loading }: { question: string; setQuestion: (value: string) => void; onSubmit: (event?: FormEvent) => void; onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void; onUpload: () => void; onVoice: () => void; recording: boolean; loading: boolean }) {
   return <form className="composer workspace-composer" onSubmit={onSubmit} onDragOver={(event) => event.preventDefault()}>

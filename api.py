@@ -56,6 +56,7 @@ app = FastAPI(title="MediGuide AI API", version="1.0.0")
 _DEFAULT_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://medi.naziaasif1412.workers.dev",
     "https://frontend.naziaasif1412.workers.dev",
 ]
 _env_origins = [

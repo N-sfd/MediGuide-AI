@@ -93,11 +93,16 @@ def _prepare_generation(
     if not retrieved:
         return (
             "early",
-            "Not enough trusted information found.\n\n"
-            "MediGuide will not answer this question using unsupported "
-            "model knowledge.\n\n"
-            "Consider asking a qualified healthcare professional or "
-            "adding an approved source covering this topic.\n\n"
+            "Limited trusted information available\n\n"
+            "MediGuide couldn’t find enough approved source material "
+            "to answer this question confidently.\n\n"
+            "Try:\n"
+            "• Asking a more specific question\n"
+            "• Reviewing one of the available topics\n"
+            "• Adding a trusted source to the knowledge base\n\n"
+            "Supported demo topics include blood pressure, cholesterol, "
+            "diabetes, CBC lab tests, medication labels, antibiotics, "
+            "fever, allergies, and appointment preparation.\n\n"
             "---\n"
             f"{SAFETY_REMINDER}",
             None,
