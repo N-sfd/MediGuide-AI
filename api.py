@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import tempfile
@@ -50,9 +51,22 @@ class SpeakRequest(BaseModel):
 
 
 app = FastAPI(title="MediGuide AI API", version="1.0.0")
+
+# Local Next.js + Cloudflare Workers/Pages frontend origins.
+_DEFAULT_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://frontend.naziaasif1412.workers.dev",
+]
+_env_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_env_origins or _DEFAULT_ORIGINS,
+    allow_origin_regex=r"https://.*\.(workers\.dev|pages\.dev)",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
