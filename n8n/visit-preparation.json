@@ -1,0 +1,6 @@
+{
+  "name": "MediGuide visit preparation export",
+  "nodes": [],
+  "connections": {},
+  "notes": "Generate Patient-Provided Visit Preparation Summary PDF after human confirmation."
+}

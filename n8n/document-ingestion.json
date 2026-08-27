@@ -1,0 +1,6 @@
+{
+  "name": "MediGuide document ingestion",
+  "nodes": [],
+  "connections": {},
+  "notes": "Operational workflow only: queue PDF ingestion, thumbnail generation, retention cleanup. Do not place LLM safety or emergency routing here."
+}

@@ -141,3 +141,10 @@ DELETE_SPEECH_AFTER_MINUTES = int(
         "30",
     )
 )
+
+# Relational store for document → page → field → lab observation provenance.
+# Default SQLite keeps local demos zero-config; switch to Postgres in production.
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:///{(BASE_DIR / 'data' / 'mediguide.db').as_posix()}",
+)

@@ -1,0 +1,6 @@
+{
+  "name": "MediGuide notifications",
+  "nodes": [],
+  "connections": {},
+  "notes": "Operational alerts for failed health checks and ingestion jobs."
+}

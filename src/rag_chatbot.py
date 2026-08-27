@@ -173,10 +173,16 @@ evidence cannot fully answer the question, say what remains unknown in
     return "ready", messages, sources
 
 
-def _finalize_answer(
+def _finalize(
     answer: str,
     sources: list[CitationSource],
-) -> str:
+) -> tuple[str, str]:
+    """Validates a draft answer.
+
+    Returns ``(text, status)`` where status is ``"answered"`` when the
+    draft passed every check, or ``"withheld"`` when it was replaced by
+    an explanation of why it could not be shown.
+    """
     valid_numbers = {
         source.number
         for source in sources
@@ -192,7 +198,8 @@ def _finalize_answer(
     if not citations_valid:
         return (
             "The model generated an invalid citation reference. "
-            "The answer was withheld to prevent unsupported sourcing."
+            "The answer was withheld to prevent unsupported sourcing.",
+            "withheld",
         )
 
     used_citations = find_citation_numbers(answer)
@@ -200,7 +207,8 @@ def _finalize_answer(
     if not used_citations:
         return (
             "The response did not include evidence citations, so it was "
-            "withheld. Please try the question again."
+            "withheld. Please try the question again.",
+            "withheld",
         )
 
     validation = validate_response(answer)
@@ -209,7 +217,8 @@ def _finalize_answer(
         return (
             "The generated response failed the medical-safety check. "
             "Please rephrase the question or consult a qualified "
-            "healthcare professional."
+            "healthcare professional.",
+            "withheld",
         )
 
     source_list = format_source_list(sources)
@@ -219,8 +228,33 @@ def _finalize_answer(
         f"---\n"
         f"{source_list}\n\n"
         f"---\n"
-        f"{SAFETY_REMINDER}"
+        f"{SAFETY_REMINDER}",
+        "answered",
     )
+
+
+def _finalize_answer(
+    answer: str,
+    sources: list[CitationSource],
+) -> str:
+    return _finalize(answer, sources)[0]
+
+
+def serialize_sources(
+    sources: list[CitationSource] | None,
+) -> list[dict[str, Any]]:
+    """Converts citation sources into JSON-ready dictionaries."""
+    return [
+        {
+            "number": source.number,
+            "title": source.title,
+            "publisher": source.publisher,
+            "published": source.publication_date,
+            "reviewed": source.review_date,
+            "url": source.source_url,
+        }
+        for source in sources or []
+    ]
 
 
 def stream_rag_response(
@@ -280,6 +314,121 @@ def stream_rag_response(
         return
 
     yield _finalize_answer(accumulated.strip(), sources)
+
+
+def stream_rag_events(
+    user_message: str,
+    history: list[dict[str, Any]] | None = None,
+    *,
+    answer_detail: str = "Standard",
+    reading_level: str = "Standard",
+) -> Iterator[dict[str, Any]]:
+    """Yields structured events describing the answer as it is built.
+
+    Event shapes:
+
+    ``{"type": "stage", "stage": str}``
+        A pipeline step the caller can surface while waiting.
+    ``{"type": "sources", "sources": list}``
+        The approved sources backing the answer, known before the model
+        starts writing so citations can be resolved as they stream in.
+    ``{"type": "delta", "text": str}``
+        The next fragment of the unvalidated draft.
+    ``{"type": "done", "answer": str, "sources": list, "status": str}``
+        The validated answer. ``status`` is ``"answered"``,
+        ``"withheld"``, ``"emergency"``, ``"no_evidence"`` or ``"error"``.
+        The answer always replaces any streamed draft.
+    """
+    yield {"type": "stage", "stage": "Checking safety"}
+
+    if user_message and user_message.strip():
+        emergency = check_for_emergency(user_message.strip())
+
+        if emergency.is_emergency:
+            message = (
+                emergency.message
+                or "Call emergency services immediately."
+            )
+            yield {
+                "type": "done",
+                "answer": message,
+                "sources": [],
+                "status": "emergency",
+            }
+            return
+
+    yield {"type": "stage", "stage": "Searching approved sources"}
+
+    stage, payload, sources = _prepare_generation(
+        user_message,
+        history,
+        answer_detail=answer_detail,
+        reading_level=reading_level,
+    )
+
+    if stage == "early":
+        status = (
+            "no_evidence"
+            if "Limited trusted information" in payload
+            else "error"
+        )
+        yield {
+            "type": "done",
+            "answer": payload,
+            "sources": [],
+            "status": status,
+        }
+        return
+
+    serialized = serialize_sources(sources)
+    yield {"type": "sources", "sources": serialized}
+    yield {"type": "stage", "stage": "Writing a cited answer"}
+
+    messages = payload
+    client = Client(host=OLLAMA_HOST)
+    accumulated = ""
+
+    try:
+        for chunk in client.chat(
+            model=MODEL_NAME,
+            messages=messages,
+            options={
+                "temperature": TEMPERATURE,
+                "num_predict": RAG_MAX_OUTPUT_TOKENS,
+            },
+            stream=True,
+        ):
+            piece = chunk.message.content or ""
+
+            if not piece:
+                continue
+
+            accumulated += piece
+            yield {"type": "delta", "text": piece}
+
+    except Exception as error:
+        yield {
+            "type": "done",
+            "answer": (
+                "The evidence was retrieved, but the local model could "
+                "not generate the answer.\n\n"
+                f"Technical detail: {type(error).__name__}: {error}"
+            ),
+            "sources": serialized,
+            "status": "error",
+        }
+        return
+
+    yield {"type": "stage", "stage": "Validating citations"}
+
+    answer, status = _finalize(accumulated.strip(), sources)
+
+    yield {
+        "type": "done",
+        "answer": answer,
+        "sources": serialized if status == "answered" else [],
+        "status": status,
+    }
 
 
 def generate_rag_response(

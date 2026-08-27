@@ -1,0 +1,6 @@
+{
+  "name": "MediGuide audit events",
+  "nodes": [],
+  "connections": {},
+  "notes": "Persist operational audit events. No PHI forwarding to third parties."
+}

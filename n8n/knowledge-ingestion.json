@@ -1,0 +1,6 @@
+{
+  "name": "MediGuide knowledge ingestion",
+  "nodes": [],
+  "connections": {},
+  "notes": "Refresh approved source embeddings and expire stale knowledge metadata."
+}

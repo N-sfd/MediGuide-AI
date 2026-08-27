@@ -21,3 +21,5 @@ data/knowledge/rejected/
 *.webm
 
 *.sqlite3
+data/mediguide.db
+data/*.db

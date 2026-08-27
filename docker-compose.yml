@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mediguide
+      POSTGRES_USER: mediguide
+      POSTGRES_PASSWORD: mediguide
+    ports:
+      - "5432:5432"
+    volumes:
+      - mediguide_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediguide -d mediguide"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://mediguide:mediguide@db:5432/mediguide
+      OLLAMA_HOST: http://host.docker.internal:11434
+      FRONTEND_ORIGINS: http://localhost:3000
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  mediguide_pg:

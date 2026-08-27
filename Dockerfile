@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api.py app.py ingest_knowledge.py ./
 COPY src ./src
+COPY migrations ./migrations
+COPY alembic.ini ./
 COPY data/knowledge ./data/knowledge
 COPY data/vector_store ./data/vector_store
 COPY voices ./voices
