@@ -3,6 +3,11 @@
 MediGuide is evolving from a local RAG chatbot into a multimodal,
 evidence-grounded health-information workspace.
 
+## Routes
+
+- `/` — public marketing homepage
+- `/workspace` — product application (conversations, documents, labs, medications, visit prep, demo, evaluation, system)
+
 ## Provenance chain (Milestone 1)
 
 Document → DocumentPage → ExtractedField → LabObservation

@@ -7,8 +7,6 @@ import {
   BookOpen,
   Check,
   FileText,
-  Pill,
-  Play,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -72,13 +70,17 @@ function MockChrome({
   );
 }
 
-export function PremiumLanding({ onStart }: { onStart: () => void }) {
+export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void }) {
   useReveal();
+
+  const handleStart = (targetView?: string) => {
+    onStart?.(targetView);
+  };
 
   return (
     <main className="premium-landing">
       <header className="landing-header">
-        <button className="app-brand" onClick={onStart}>
+        <button className="app-brand" onClick={() => handleStart()}>
           <span className="brand-mark">
             <ShieldCheck size={15} />
           </span>
@@ -86,7 +88,7 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
             MediGuide <em>AI</em>
           </span>
         </button>
-        <button className="quiet-button" onClick={onStart}>
+        <button className="quiet-button" onClick={() => handleStart()}>
           Open workspace <ArrowUpRight size={15} />
         </button>
       </header>
@@ -106,7 +108,7 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
             voice, and prepare for appointments with trusted evidence alongside you.
           </p>
           <div className="hero-actions">
-            <button className="forest-button" onClick={onStart}>
+            <button className="forest-button" onClick={() => handleStart("conversation")}>
               Start a private session <ArrowUpRight size={17} />
             </button>
             <button
@@ -128,15 +130,15 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
             </li>
           </ul>
           <div className="hero-chips" aria-label="Example starting points">
-            <button type="button" onClick={onStart}>
+            <button type="button" onClick={() => handleStart("medication")}>
               Understand a medication label
             </button>
-            <button type="button" onClick={onStart}>
+            <button type="button" onClick={() => handleStart("documents")}>
               Review lab results
             </button>
             <button
               type="button"
-              onClick={() => document.getElementById("how-medi-guide-works")?.scrollIntoView({ behavior: "smooth" })}
+              onClick={() => handleStart("visit")}
             >
               Prepare for an appointment
             </button>
@@ -151,7 +153,7 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
             />
           </figure>
 
-          <article className="med-explain-card" aria-label="MediGuide medication explanation preview">
+          <article className="med-explain-card med-explain-card-compact" aria-label="MediGuide medication explanation preview">
             <header>
               <Sparkles size={14} />
               <strong>Medication explained</strong>
@@ -161,79 +163,42 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
               <span>Amoxicillin</span>
               <strong>500 mg</strong>
             </div>
-            <div className="med-block">
-              <h4>General information</h4>
-              <p>Amoxicillin is an antibiotic used for certain bacterial infections.</p>
-            </div>
-            <div className="med-block">
-              <h4>Things to understand</h4>
-              <ul>
-                <li>How it is generally taken</li>
-                <li>Common side effects</li>
-                <li>Important precautions</li>
-              </ul>
-            </div>
+            <p className="med-one-liner">Trusted sources explain what this antibiotic is generally used for — not personalized dosing.</p>
             <div className="med-evidence-row">
-              <span>Supported by trusted sources</span>
+              <span>Evidence checked</span>
               <div className="cite-pills">
                 <span>[1]</span>
                 <span>[2]</span>
-                <span>[3]</span>
-              </div>
-            </div>
-            <div className="med-listen">
-              <button type="button" className="listen-play" aria-label="Play explanation">
-                <Play size={12} fill="currentColor" />
-              </button>
-              <div>
-                <strong>Listen to explanation</strong>
-                <div className="waveform" aria-hidden>
-                  {Array.from({ length: 22 }).map((_, i) => (
-                    <i key={i} style={{ ["--h" as string]: `${30 + ((i * 19) % 50)}%` }} />
-                  ))}
-                </div>
               </div>
             </div>
           </article>
 
           <div className="hero-badge med-verify">
-            <Pill size={17} />
-            <span>
-              <strong>Medication label</strong>
-              <small>
-                Amoxicillin · 500 mg
-                <br />
-                Needs your confirmation
-              </small>
-            </span>
-            <em>Review</em>
-          </div>
-          <div className="hero-badge med-evidence">
             <Check size={16} />
             <span>
-              <strong>Evidence checked</strong>
-              <small>3 trusted educational sources</small>
+              <strong>Human verified</strong>
+              <small>Label confirmed before explanation</small>
             </span>
           </div>
         </div>
       </section>
 
       <section className="feature-proof-strip">
-        <span>
+        <button type="button" onClick={() => handleStart("documents")} className="proof-chip-btn">
           <Upload size={17} /> Document upload
-        </span>
-        <span>
+        </button>
+        <button type="button" onClick={() => handleStart("conversation")} className="proof-chip-btn">
           <Sparkles size={17} /> AI explanation
-        </span>
-        <span>
+        </button>
+        <button type="button" onClick={() => handleStart("sources")} className="proof-chip-btn">
           <BookOpen size={17} /> Evidence citations
-        </span>
-        <span>
+        </button>
+        <button type="button" onClick={() => handleStart("conversation")} className="proof-chip-btn">
           <Volume2 size={17} /> Voice playback
-        </span>
-        <span>
+        </button>
+        <button type="button" onClick={() => handleStart("system")} className="proof-chip-btn">
           <ShieldCheck size={17} /> Private by design
-        </span>
+        </button>
       </section>
 
       <section className="visit-prep-section band-light" id="how-medi-guide-works">
@@ -283,7 +248,7 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
                     <li>Do I need follow-up testing?</li>
                   </ul>
                 </div>
-                <button className="forest-button" onClick={onStart}>
+                <button className="forest-button" onClick={() => handleStart("visit")}>
                   Open visit preparation <ArrowUpRight size={14} />
                 </button>
               </div>
@@ -306,16 +271,16 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
           </div>
           <MockChrome title="Document review" subtitle="Verified locally" className="doc-frame">
             <div className="doc-steps" aria-label="Document understanding workflow">
-              <article className="doc-step">
+              <article className="doc-step" onClick={() => handleStart("documents")} role="button" tabIndex={0}>
                 <span className="step-num">01</span>
                 <h3>Upload</h3>
                 <div className="step-upload">
                   <FileText size={22} />
                   <strong>Lab_Report.pdf</strong>
-                  <small>2 pages · Temporary session file</small>
+                  <small>1 page · Temporary session file</small>
                 </div>
               </article>
-              <article className="doc-step">
+              <article className="doc-step" onClick={() => handleStart("documents")} role="button" tabIndex={0}>
                 <span className="step-num">02</span>
                 <h3>Verify</h3>
                 <div className="step-verify">
@@ -326,12 +291,12 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
                   </label>
                   <label>
                     WBC
-                    <input defaultValue="6.2" readOnly />
-                    <em className="review">Needs review</em>
+                    <input defaultValue="6.4" readOnly />
+                    <em className="clear">Clearly visible</em>
                   </label>
                 </div>
               </article>
-              <article className="doc-step">
+              <article className="doc-step" onClick={() => handleStart("documents")} role="button" tabIndex={0}>
                 <span className="step-num">03</span>
                 <h3>Understand</h3>
                 <div className="step-understand">
@@ -376,12 +341,12 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
               <div className="transcript-card">
                 <span className="panel-kicker">Editable transcript</span>
                 <p>
-                  Can you help me prepare a question about whether <mark>Amoxicillin</mark> at <mark>5 mg</mark> started
+                  Can you help me prepare a question about whether <mark>Amoxicillin</mark> at <mark>500 mg</mark> started
                   on <mark>August 12</mark> could affect my lab values?
                 </p>
                 <div className="term-pills">
                   <span>Amoxicillin</span>
-                  <span>5 mg</span>
+                  <span>500 mg</span>
                   <span>August 12</span>
                 </div>
               </div>
@@ -391,7 +356,7 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
               <label className="voice-confirm">
                 <input type="checkbox" defaultChecked readOnly /> I reviewed this transcript
               </label>
-              <button className="forest-button voice-send" type="button" onClick={onStart}>
+              <button className="forest-button voice-send" type="button" onClick={() => handleStart("conversation")}>
                 Send confirmed question <ArrowUpRight size={14} />
               </button>
             </div>
@@ -423,27 +388,27 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
               {[
                 {
                   n: 1,
-                  publisher: "MedlinePlus",
-                  topic: "Hemoglobin information",
-                  date: "Reviewed Aug 2025",
-                  passage: "Hemoglobin is the iron-rich protein in red blood cells that carries oxygen.",
+                  publisher: "MedlinePlus (NLM)",
+                  topic: "Complete Blood Count (CBC) Overview",
+                  date: "Reviewed Aug 2026",
+                  passage: "A CBC measures red blood cells, white blood cells, and platelets to evaluate overall health.",
                 },
                 {
                   n: 2,
-                  publisher: "CDC",
-                  topic: "Blood health education",
-                  date: "Reviewed Mar 2025",
-                  passage: "Lab reference ranges help describe typical values for a given population and method.",
+                  publisher: "Centers for Disease Control (CDC)",
+                  topic: "Diabetes & Blood Health Education",
+                  date: "Reviewed Aug 2026",
+                  passage: "Clinical reference ranges help describe typical values for a given population and testing method.",
                 },
                 {
                   n: 3,
-                  publisher: "FDA",
-                  topic: "Consumer health information",
-                  date: "Reviewed Jan 2025",
-                  passage: "Educational materials can help you prepare questions for a healthcare professional.",
+                  publisher: "National Institutes of Health (NIH)",
+                  topic: "Patient Health & Appointment Guidance",
+                  date: "Reviewed Aug 2026",
+                  passage: "Educational health materials are designed to help you prepare informed questions for your care team.",
                 },
               ].map((source) => (
-                <article className="evidence-demo-card" key={source.n}>
+                <article className="evidence-demo-card" key={source.n} onClick={() => handleStart("sources")} role="button" tabIndex={0}>
                   <b>[{source.n}]</b>
                   <div>
                     <strong>{source.publisher}</strong>
@@ -507,10 +472,10 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
           </h2>
           <p>Educational guidance with evidence-backed sources and clear safety boundaries.</p>
           <div className="final-cta-actions">
-            <button className="forest-button" onClick={onStart}>
+            <button className="forest-button" onClick={() => handleStart("conversation")}>
               Start a private session <ArrowUpRight size={17} />
             </button>
-            <button className="quiet-button" onClick={onStart}>
+            <button className="quiet-button" onClick={() => handleStart("documents")}>
               <Upload size={15} /> Upload a medical document
             </button>
           </div>
@@ -522,11 +487,9 @@ export function PremiumLanding({ onStart }: { onStart: () => void }) {
           <ShieldCheck size={14} /> Educational support, never a diagnosis.
         </span>
         <nav>
-          <a href="#privacy">Privacy</a>
-          <a href="#safety">Safety</a>
-          <a href="#sources">Sources</a>
-          <a href="#about">About</a>
-          <a href="#terms">Terms</a>
+          <button type="button" onClick={() => handleStart("system")} className="footer-link-btn">Privacy &amp; System</button>
+          <button type="button" onClick={() => handleStart("sources")} className="footer-link-btn">Sources</button>
+          <button type="button" onClick={() => handleStart("visit")} className="footer-link-btn">Visit Prep</button>
         </nav>
         <span>© 2026 MediGuide AI</span>
       </footer>

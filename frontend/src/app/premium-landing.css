@@ -176,13 +176,16 @@
 /* Medication lifestyle hero composition */
 .hero-med-stage {
   isolation: isolate;
+  min-height: clamp(420px, 58vh, 600px);
 }
 
 .hero-med-photo {
   margin: 0;
   overflow: hidden;
   border-radius: 28px;
-  aspect-ratio: 4 / 3;
+  height: 100%;
+  min-height: clamp(420px, 58vh, 600px);
+  aspect-ratio: auto;
   background: #e6ebe7;
   box-shadow: 0 24px 55px #17221f1c;
 }
@@ -200,7 +203,7 @@
   left: 18px;
   bottom: 18px;
   z-index: 2;
-  width: min(300px, 58%);
+  width: min(280px, 50%);
   padding: 14px 14px 12px;
   border: 1px solid #d7e1db;
   border-radius: 16px;
@@ -208,6 +211,16 @@
   box-shadow: 0 16px 36px #17221f22;
   backdrop-filter: blur(8px);
   color: var(--ink);
+}
+
+.med-explain-card-compact .med-one-liner {
+  margin: 0 0 10px;
+  color: #52645b;
+  font: 12.5px / 1.45 var(--pl-sans);
+}
+
+.med-explain-card-compact .med-evidence-row {
+  margin-bottom: 0;
 }
 
 .med-explain-card > header {
@@ -736,10 +749,23 @@
   color: var(--muted);
   font: 600 12px var(--pl-sans);
 }
-.feature-proof-strip span {
+.feature-proof-strip span,
+.feature-proof-strip .proof-chip-btn {
   display: flex;
   align-items: center;
   gap: 8px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.feature-proof-strip .proof-chip-btn:hover {
+  background: #eef6f1;
+  color: var(--forest-dark);
 }
 .feature-proof-strip svg {
   color: var(--forest);
@@ -1296,11 +1322,19 @@
   display: flex;
   gap: 16px;
 }
-.premium-landing .landing-footer a {
+.premium-landing .landing-footer a,
+.premium-landing .landing-footer .footer-link-btn {
   color: inherit;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
   text-decoration: none;
+  transition: color 0.15s ease;
 }
-.premium-landing .landing-footer a:hover {
+.premium-landing .landing-footer a:hover,
+.premium-landing .landing-footer .footer-link-btn:hover {
   color: #8ed0af;
 }
 .premium-landing .landing-footer svg {
@@ -1336,8 +1370,7 @@
   .med-explain-card {
     width: min(270px, 62%);
   }
-  .hero-badge.med-verify,
-  .hero-badge.med-evidence {
+  .hero-badge.med-verify {
     right: 10px;
   }
 }

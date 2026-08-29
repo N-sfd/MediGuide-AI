@@ -78,6 +78,24 @@ class DocumentState(BaseModel):
     pages: list[PageInfo]
     fields: list[ExtractedField]
     confirmed: bool = False
+    content_type: str = ""
+    file_size: int = 0
+
+
+class UploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    content_type: str = ""
+    file_size: int
+    status: str = "uploaded"
+
+
+class DocumentStatusResponse(BaseModel):
+    document_id: str
+    filename: str
+    status: str
+    page_count: int = 0
+    field_count: int = 0
 
 
 class ConfirmRequest(BaseModel):
@@ -358,23 +376,116 @@ def _confirmed_context(fields: list[ExtractedField]) -> str:
     return "\n".join(lines)
 
 
-async def _ingest_pdf(
+async def _save_upload_file(
     file: UploadFile,
     folder: Path,
     pages_dir: Path,
-    document_id: str,
-) -> tuple[list[PageInfo], list[ExtractedField]]:
-    pdf_path = folder / "document.pdf"
-    max_bytes = MAX_MB * 1024 * 1024
+    suffix: str,
+) -> tuple[Path, int]:
+    """Persist the raw upload to disk without extraction."""
+    max_bytes = (MAX_MB if suffix == ".pdf" else MAX_IMAGE_MB) * 1024 * 1024
     total = 0
 
-    with pdf_path.open("wb") as out:
+    if suffix == ".pdf":
+        target = folder / "document.pdf"
+    else:
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        target = pages_dir / f"upload{suffix}"
+
+    with target.open("wb") as out:
         while chunk := await file.read(1024 * 1024):
             total += len(chunk)
             if total > max_bytes:
-                raise HTTPException(status_code=413, detail=f"PDF exceeds {MAX_MB} MB.")
+                limit = MAX_MB if suffix == ".pdf" else MAX_IMAGE_MB
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File exceeds {limit} MB.",
+                )
             out.write(chunk)
 
+    return target, total
+
+
+def _extract_native_text_fields(text: str, page_number: int) -> list[ExtractedField]:
+    """Parse structured medical lab fields directly from digital PDF text.
+
+    Fast, deterministic, and does not require Ollama/GPU when clean text is present.
+    """
+    if not text:
+        return []
+
+    results: list[ExtractedField] = []
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    index = 0
+    for line in lines:
+        if re.search(r"^(?:sample|page\s*\d|report\s*date|patient|doctor|physician|date\b|test\s*name|component\b)", line, re.I):
+            continue
+
+        label: str = ""
+        value: str = ""
+        unit: str = ""
+        ref_range: str = ""
+
+        # Pattern 1: Label Value Unit Ref Range (e.g. "Hemoglobin 13.2 g/dL Ref 12.0-15.5")
+        m1 = re.match(
+            r"^([A-Za-z0-9\s/_\-\(\)\.]+?)\s+([<>]?\s*\d+(?:\.\d+)?)\s*([a-zA-Z0-9^/%µ\-_/]*)\s*(?:(?:Ref|Reference|Range|Ref\s*Range|Normal|Limits)[:\s]*|[\[\(])\s*([<>]?\s*\d+(?:\.\d+)?\s*(?:[-–to]+\s*\d+(?:\.\d+)?)?)[\]\)]?",
+            line,
+            re.I,
+        )
+        if m1:
+            label, value, unit, ref_range = m1.groups()
+        else:
+            # Pattern 2: Label : Value Unit (Range) (e.g. "Glucose: 98 mg/dL (70-99)")
+            m2 = re.match(
+                r"^([A-Za-z0-9\s/_\-\(\)\.]+?)\s*[:=]\s*([<>]?\s*\d+(?:\.\d+)?)\s*([a-zA-Z0-9^/%µ\-_/]*)\s*(?:[\[\(]?([<>]?\s*\d+(?:\.\d+)?\s*(?:[-–to]+\s*\d+(?:\.\d+)?)?)[\]\)]?)?",
+                line,
+                re.I,
+            )
+            if m2:
+                label, value, unit, ref_range = m2.groups()
+            else:
+                # Pattern 3: Simple Label Value Unit (e.g. "WBC 6.4 10^3/uL")
+                m3 = re.match(
+                    r"^([A-Za-z0-9\s/_\-\(\)\.]+?)\s+([<>]?\s*\d+(?:\.\d+)?)\s*([a-zA-Z0-9^/%µ\-_/]+)$",
+                    line,
+                )
+                if m3:
+                    label, value, unit = m3.groups()
+
+        if label and value:
+            label_clean = label.strip()
+            if len(label_clean) < 2 or label_clean.lower() in {"page", "report", "date", "dr", "md", "total"}:
+                continue
+            val_clean = value.strip()
+            unit_clean = (unit or "").strip()
+            ref_clean = (ref_range or "").strip()
+            status = _recompute_status(val_clean, ref_clean, "unknown")
+            field_id = _field_id(page_number, index, label_clean)
+            results.append(
+                ExtractedField(
+                    field_id=field_id,
+                    label=label_clean,
+                    value=val_clean,
+                    unit=unit_clean,
+                    reference_range=ref_clean,
+                    status=status,
+                    confidence="clearly_visible",
+                    page_number=page_number,
+                    source_text=line,
+                    user_edited=False,
+                )
+            )
+            index += 1
+
+    return results
+
+
+def _process_saved_pdf(
+    pdf_path: Path,
+    pages_dir: Path,
+    document_id: str,
+) -> tuple[list[PageInfo], list[ExtractedField]]:
     try:
         doc = pymupdf.open(pdf_path)
     except Exception as e:
@@ -394,7 +505,18 @@ async def _ingest_pdf(
             text = page.get_text("text", sort=True).strip()
             preview = pages_dir / f"page-{n}.png"
             page.get_pixmap(dpi=RENDER_DPI, alpha=False).save(str(preview))
-            page_fields = _extract_page_fields(preview, n, text)
+
+            # Step 1: Native PDF text extraction
+            native_fields = _extract_native_text_fields(text, n)
+            if native_fields:
+                page_fields = native_fields
+            else:
+                # Step 2: Vision model only for scanned/unparsed pages
+                try:
+                    page_fields = _extract_page_fields(preview, n, text)
+                except Exception:
+                    page_fields = []
+
             fields.extend(page_fields)
             pages.append(PageInfo(
                 page_number=n,
@@ -408,41 +530,23 @@ async def _ingest_pdf(
     return pages, fields
 
 
-async def _ingest_image(
-    file: UploadFile,
+def _process_saved_image(
+    raw_path: Path,
     suffix: str,
     pages_dir: Path,
     document_id: str,
 ) -> tuple[list[PageInfo], list[ExtractedField]]:
-    raw_path = pages_dir / f"upload{suffix}"
-    max_bytes = MAX_IMAGE_MB * 1024 * 1024
-    total = 0
-
-    with raw_path.open("wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            total += len(chunk)
-            if total > max_bytes:
-                raise HTTPException(
-                    status_code=413, detail=f"Image exceeds {MAX_IMAGE_MB} MB."
-                )
-            out.write(chunk)
-
     validation = validate_image_file(str(raw_path))
 
     if not validation.valid or not validation.path:
         raise HTTPException(status_code=422, detail=validation.error)
 
-    # Normalize to PNG so preview() and every downstream path (vision
-    # model, page-1 filename convention) stay format-agnostic.
     preview = pages_dir / "page-1.png"
 
     with Image.open(validation.path) as image:
         image.convert("RGB").save(preview, format="PNG")
 
     raw_path.unlink(missing_ok=True)
-
-    # A plain image has no native text layer — the vision model reads
-    # everything directly from the page image.
     page_fields = _extract_page_fields(preview, 1, "")
 
     pages = [
@@ -457,8 +561,29 @@ async def _ingest_image(
     return pages, page_fields
 
 
-@router.post("/upload", response_model=DocumentState)
-async def upload(file: UploadFile = File(...)) -> DocumentState:
+async def _ingest_pdf(
+    file: UploadFile,
+    folder: Path,
+    pages_dir: Path,
+    document_id: str,
+) -> tuple[list[PageInfo], list[ExtractedField]]:
+    pdf_path, _ = await _save_upload_file(file, folder, pages_dir, ".pdf")
+    return _process_saved_pdf(pdf_path, pages_dir, document_id)
+
+
+async def _ingest_image(
+    file: UploadFile,
+    suffix: str,
+    pages_dir: Path,
+    document_id: str,
+) -> tuple[list[PageInfo], list[ExtractedField]]:
+    raw_path, _ = await _save_upload_file(file, folder=pages_dir.parent, pages_dir=pages_dir, suffix=suffix)
+    return _process_saved_image(raw_path, suffix, pages_dir, document_id)
+
+
+@router.post("/upload", response_model=UploadResponse)
+async def upload(file: UploadFile = File(...)) -> UploadResponse:
+    """Store the uploaded file and return immediately — no extraction yet."""
     _cleanup_expired_sessions()
 
     suffix = Path(file.filename or "").suffix.lower()
@@ -479,23 +604,26 @@ async def upload(file: UploadFile = File(...)) -> DocumentState:
     pages_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        if suffix == ".pdf":
-            pages, fields = await _ingest_pdf(file, folder, pages_dir, document_id)
-        else:
-            pages, fields = await _ingest_image(file, suffix, pages_dir, document_id)
-
+        _, file_size = await _save_upload_file(file, folder, pages_dir, suffix)
         state = DocumentState(
             document_id=document_id,
             filename=file.filename or f"document{suffix}",
-            page_count=len(pages),
-            status="review_required",
-            pages=pages,
-            fields=fields,
+            page_count=0,
+            status="uploaded",
+            pages=[],
+            fields=[],
             confirmed=False,
+            content_type=file.content_type or "",
+            file_size=file_size,
         )
         _save_state(state)
-        return state
-
+        return UploadResponse(
+            document_id=document_id,
+            filename=state.filename,
+            content_type=state.content_type,
+            file_size=file_size,
+            status="uploaded",
+        )
     except HTTPException:
         shutil.rmtree(folder, ignore_errors=True)
         raise
@@ -503,8 +631,87 @@ async def upload(file: UploadFile = File(...)) -> DocumentState:
         shutil.rmtree(folder, ignore_errors=True)
         raise HTTPException(
             status_code=500,
-            detail=f"MediGuide could not process this document: {type(e).__name__}",
+            detail=f"MediGuide could not store this upload: {type(e).__name__}",
         ) from e
+
+
+@router.get("/{document_id}/status", response_model=DocumentStatusResponse)
+async def document_status(document_id: str) -> DocumentStatusResponse:
+    state = _load_state(document_id)
+    return DocumentStatusResponse(
+        document_id=state.document_id,
+        filename=state.filename,
+        status=state.status,
+        page_count=state.page_count,
+        field_count=len(state.fields),
+    )
+
+
+@router.post("/{document_id}/process", response_model=DocumentState)
+async def process_document(document_id: str) -> DocumentState:
+    """Extract pages and fields from a previously uploaded document."""
+    state = _load_state(document_id)
+    folder = _folder(document_id)
+    pages_dir = folder / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+
+    if state.status == "review_required" and state.fields:
+        return state
+    if state.status == "confirmed":
+        return state
+
+    state.status = "extracting"
+    _save_state(state)
+
+    try:
+        pdf_path = folder / "document.pdf"
+        if pdf_path.exists():
+            pages, fields = _process_saved_pdf(pdf_path, pages_dir, document_id)
+        else:
+            upload_files = list(pages_dir.glob("upload.*"))
+            if not upload_files:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Uploaded file not found for this document.",
+                )
+            raw_path = upload_files[0]
+            suffix = raw_path.suffix.lower()
+            pages, fields = _process_saved_image(
+                raw_path, suffix, pages_dir, document_id
+            )
+
+        state = DocumentState(
+            document_id=document_id,
+            filename=state.filename,
+            page_count=len(pages),
+            status="review_required",
+            pages=pages,
+            fields=fields,
+            confirmed=False,
+            content_type=state.content_type,
+            file_size=state.file_size,
+        )
+        _save_state(state)
+        return state
+
+    except HTTPException:
+        failed = state.model_copy(update={"status": "failed"})
+        _save_state(failed)
+        raise
+    except Exception as e:
+        failed = state.model_copy(update={"status": "failed"})
+        _save_state(failed)
+        raise HTTPException(
+            status_code=500,
+            detail=f"MediGuide could not read this document: {type(e).__name__}",
+        ) from e
+
+
+@router.post("/upload-and-process", response_model=DocumentState, include_in_schema=False)
+async def upload_and_process(file: UploadFile = File(...)) -> DocumentState:
+    """Legacy one-step upload used by older clients."""
+    uploaded = await upload(file)
+    return await process_document(uploaded.document_id)
 
 
 @router.get("/{document_id}", response_model=DocumentState)
@@ -540,6 +747,21 @@ async def confirm(document_id: str, request: ConfirmRequest):
     state.status = "confirmed"
     _save_state(state)
 
+    report_date: str | None = None
+    pdf_path = _folder(document_id) / "document.pdf"
+    if pdf_path.exists():
+        try:
+            doc = pymupdf.open(pdf_path)
+            for page in doc:
+                txt = page.get_text("text")
+                m = re.search(r"(?:Report\s*date|Date|Collection\s*date)[:\s]*([0-9\-/]+)", txt, re.I)
+                if m:
+                    report_date = m.group(1).strip()
+                    break
+            doc.close()
+        except Exception:
+            pass
+
     persistence: dict[str, object] = {"persisted": False, "lab_observation_count": 0}
     try:
         persistence = {
@@ -550,6 +772,7 @@ async def confirm(document_id: str, request: ConfirmRequest):
                 page_count=state.page_count,
                 pages=[page.model_dump() for page in state.pages],
                 fields=[field.model_dump() for field in state.fields],
+                report_date=report_date,
                 storage_path=str(_folder(document_id)),
             ),
         }

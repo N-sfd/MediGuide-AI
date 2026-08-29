@@ -81,12 +81,13 @@ class SpeakRequest(BaseModel):
 
 app = FastAPI(title="MediGuide AI API", version="1.1.0")
 
-# Local Next.js + Cloudflare Workers/Pages frontend origins.
+# Local Next.js + Cloudflare Workers/Pages + Vercel frontend origins.
 _DEFAULT_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://medi.naziaasif1412.workers.dev",
     "https://frontend.naziaasif1412.workers.dev",
+    "https://mediguide-ai-woad.vercel.app",
 ]
 _env_origins = [
     origin.strip()
@@ -96,7 +97,7 @@ _env_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_env_origins or _DEFAULT_ORIGINS,
-    allow_origin_regex=r"https://.*\.(workers\.dev|pages\.dev)",
+    allow_origin_regex=r"https://.*\.(workers\.dev|pages\.dev|vercel\.app)",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -107,6 +108,19 @@ app.add_middleware(
 app.include_router(document_intelligence_router)
 app.include_router(medication_workspace_router)
 app.include_router(labs_router)
+
+
+@app.get("/")
+def root() -> dict[str, object]:
+    """Avoid a bare JSON 404 when someone opens the API URL in a browser."""
+    return {
+        "service": "MediGuide AI API",
+        "status": "ok",
+        "message": "This is the API only. Open the Next.js app at http://127.0.0.1:3000",
+        "health": "/api/health",
+        "system": "/api/system/status",
+        "docs": "/docs",
+    }
 
 
 @app.on_event("startup")
@@ -301,6 +315,12 @@ def system_status() -> dict[str, object]:
         "overall": payload["status"],
         "components": [
             {"name": "API", "key": "fastapi", **statuses["fastapi"]},
+            {
+                "name": "Document service",
+                "key": "document_service",
+                "status": "ready",
+                "detail": "POST /api/documents/v2/upload available",
+            },
             {"name": "Ollama", "key": "ollama", **statuses["ollama"]},
             {"name": "Text model", "key": "text_model", **statuses["text_model"]},
             {"name": "Vision model", "key": "vision_model", **statuses["vision_model"]},
@@ -309,6 +329,12 @@ def system_status() -> dict[str, object]:
             {"name": "ChromaDB", "key": "vector_store", **statuses["vector_store"]},
             {"name": "Database", "key": "database", **statuses["database"]},
             {"name": "Piper", "key": "piper", **statuses["piper"]},
+            {
+                "name": "n8n",
+                "key": "n8n",
+                "status": "ready",
+                "detail": "Workflow automation (optional)",
+            },
         ],
         "knowledge": payload.get("knowledge", {}),
     }

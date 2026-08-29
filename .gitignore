@@ -23,3 +23,5 @@ data/knowledge/rejected/
 *.sqlite3
 data/mediguide.db
 data/*.db
+
+*.log

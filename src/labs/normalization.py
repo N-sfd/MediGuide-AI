@@ -3,6 +3,21 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+TRACKED_LAB_CODES = {
+    "hemoglobin": "Hemoglobin",
+    "hemoglobin_a1c": "Hemoglobin A1C",
+    "glucose": "Glucose",
+    "ldl_cholesterol": "LDL Cholesterol",
+    "hdl_cholesterol": "HDL Cholesterol",
+    "total_cholesterol": "Cholesterol",
+    "triglycerides": "Triglycerides",
+    "creatinine": "Creatinine",
+    "wbc": "WBC",
+    "platelets": "Platelets",
+    "alt": "ALT",
+    "ast": "AST",
+}
+
 TEST_NAME_MAP = {
     "hgb": "hemoglobin",
     "hb": "hemoglobin",
@@ -21,6 +36,8 @@ TEST_NAME_MAP = {
     "hdl cholesterol": "hdl_cholesterol",
     "cholesterol": "total_cholesterol",
     "total cholesterol": "total_cholesterol",
+    "triglycerides": "triglycerides",
+    "trig": "triglycerides",
     "creatinine": "creatinine",
     "serum creatinine": "creatinine",
     "wbc": "wbc",
@@ -31,18 +48,12 @@ TEST_NAME_MAP = {
     "platelet": "platelets",
     "platelet count": "platelets",
     "plt": "platelets",
-}
-
-TRACKED_LAB_CODES = {
-    "hemoglobin": "Hemoglobin",
-    "hemoglobin_a1c": "Hemoglobin A1C",
-    "glucose": "Glucose",
-    "ldl_cholesterol": "LDL Cholesterol",
-    "hdl_cholesterol": "HDL Cholesterol",
-    "total_cholesterol": "Cholesterol",
-    "creatinine": "Creatinine",
-    "wbc": "WBC",
-    "platelets": "Platelets",
+    "alt": "alt",
+    "alanine aminotransferase": "alt",
+    "sgpt": "alt",
+    "ast": "ast",
+    "aspartate aminotransferase": "ast",
+    "sgot": "ast",
 }
 
 
