@@ -7,7 +7,8 @@ import WorkspaceApp from "./WorkspaceApp";
 function WorkspaceContent() {
   const searchParams = useSearchParams();
   const initialView = searchParams.get("view") || undefined;
-  return <WorkspaceApp initialView={initialView} />;
+  const initialAction = searchParams.get("action") || undefined;
+  return <WorkspaceApp initialView={initialView} initialAction={initialAction} />;
 }
 
 export default function WorkspacePage() {

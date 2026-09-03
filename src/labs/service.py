@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.database.repository import (
+    get_latest_lab_summary,
     get_observation,
     get_timeline,
     list_tracked_tests,
@@ -38,9 +39,11 @@ def create_observations_from_document(
             storage_path=storage_path,
         )
         count = len(document.lab_observations)
+        tracked_codes = getattr(document, "_tracked_test_codes", [])
         return {
             "document_id": document.id,
             "lab_observation_count": count,
+            "tracked_test_codes": tracked_codes,
             "confirmed": True,
         }
 
@@ -61,3 +64,9 @@ def get_observation_detail(observation_id: str) -> dict[str, Any] | None:
     ensure_db()
     with session_scope() as session:
         return get_observation(session, observation_id)
+
+
+def latest_summary() -> list[dict[str, Any]]:
+    ensure_db()
+    with session_scope() as session:
+        return get_latest_lab_summary(session)

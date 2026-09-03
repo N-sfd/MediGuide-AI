@@ -70,11 +70,11 @@ function MockChrome({
   );
 }
 
-export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void }) {
+export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?: string) => void }) {
   useReveal();
 
-  const handleStart = (targetView?: string) => {
-    onStart?.(targetView);
+  const handleStart = (targetView?: string, action?: string) => {
+    onStart?.(targetView, action);
   };
 
   return (
@@ -133,7 +133,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void 
             <button type="button" onClick={() => handleStart("medication")}>
               Understand a medication label
             </button>
-            <button type="button" onClick={() => handleStart("documents")}>
+            <button type="button" onClick={() => handleStart("documents", "upload")}>
               Review lab results
             </button>
             <button
@@ -184,7 +184,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void 
       </section>
 
       <section className="feature-proof-strip">
-        <button type="button" onClick={() => handleStart("documents")} className="proof-chip-btn">
+        <button type="button" onClick={() => handleStart("documents", "upload")} className="proof-chip-btn">
           <Upload size={17} /> Document upload
         </button>
         <button type="button" onClick={() => handleStart("conversation")} className="proof-chip-btn">
@@ -271,7 +271,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void 
           </div>
           <MockChrome title="Document review" subtitle="Verified locally" className="doc-frame">
             <div className="doc-steps" aria-label="Document understanding workflow">
-              <article className="doc-step" onClick={() => handleStart("documents")} role="button" tabIndex={0}>
+              <article className="doc-step" onClick={() => handleStart("documents", "upload")} role="button" tabIndex={0}>
                 <span className="step-num">01</span>
                 <h3>Upload</h3>
                 <div className="step-upload">
@@ -280,7 +280,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void 
                   <small>1 page · Temporary session file</small>
                 </div>
               </article>
-              <article className="doc-step" onClick={() => handleStart("documents")} role="button" tabIndex={0}>
+              <article className="doc-step" onClick={() => handleStart("documents", "upload")} role="button" tabIndex={0}>
                 <span className="step-num">02</span>
                 <h3>Verify</h3>
                 <div className="step-verify">
@@ -296,7 +296,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void 
                   </label>
                 </div>
               </article>
-              <article className="doc-step" onClick={() => handleStart("documents")} role="button" tabIndex={0}>
+              <article className="doc-step" onClick={() => handleStart("documents", "upload")} role="button" tabIndex={0}>
                 <span className="step-num">03</span>
                 <h3>Understand</h3>
                 <div className="step-understand">
@@ -475,7 +475,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string) => void 
             <button className="forest-button" onClick={() => handleStart("conversation")}>
               Start a private session <ArrowUpRight size={17} />
             </button>
-            <button className="quiet-button" onClick={() => handleStart("documents")}>
+            <button className="quiet-button" onClick={() => handleStart("documents", "upload")}>
               <Upload size={15} /> Upload a medical document
             </button>
           </div>

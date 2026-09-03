@@ -140,6 +140,9 @@ def upsert_confirmed_document(
         session.add(observation)
 
     session.flush()
+    document._tracked_test_codes = sorted(
+        {obs.test_code for obs in document.lab_observations}
+    )
     return document
 
 
@@ -203,7 +206,27 @@ def get_timeline(session: Session, test_code: str) -> list[dict[str, Any]]:
                 "verification_state": item.verification_state,
             }
         )
+    for index, point in enumerate(points):
+        previous = points[index - 1] if index else None
+        current_value = point.get("value")
+        previous_value = previous.get("value") if previous else None
+        if isinstance(current_value, (int, float)) and isinstance(previous_value, (int, float)):
+            delta = round(float(current_value) - float(previous_value), 3)
+            point["change_from_previous"] = delta
+            point["change_direction"] = "up" if delta > 0 else "down" if delta < 0 else "unchanged"
+        else:
+            point["change_from_previous"] = None
+            point["change_direction"] = None
     return points
+
+
+def get_latest_lab_summary(session: Session) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for code in TRACKED_LAB_CODES:
+        points = get_timeline(session, code)
+        if points:
+            summary.append(points[-1])
+    return summary
 
 
 def get_observation(session: Session, observation_id: str) -> Optional[dict[str, Any]]:

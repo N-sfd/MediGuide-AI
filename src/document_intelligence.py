@@ -478,6 +478,28 @@ def _extract_native_text_fields(text: str, page_number: int) -> list[ExtractedFi
             )
             index += 1
 
+    date_match = re.search(
+        r"(?:Report\s*date|Collection\s*date|Date\s*of\s*service)[:\s]*"
+        r"([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}/[0-9]{4})",
+        text,
+        re.I,
+    )
+    if date_match:
+        results.append(
+            ExtractedField(
+                field_id=_field_id(page_number, index, "Report date"),
+                label="Report date",
+                value=date_match.group(1).strip(),
+                unit="",
+                reference_range="",
+                status="not_applicable",
+                confidence="clearly_visible",
+                page_number=page_number,
+                source_text=date_match.group(0).strip(),
+                user_edited=False,
+            )
+        )
+
     return results
 
 
@@ -579,6 +601,64 @@ async def _ingest_image(
 ) -> tuple[list[PageInfo], list[ExtractedField]]:
     raw_path, _ = await _save_upload_file(file, folder=pages_dir.parent, pages_dir=pages_dir, suffix=suffix)
     return _process_saved_image(raw_path, suffix, pages_dir, document_id)
+
+
+class SessionSummary(BaseModel):
+    document_id: str
+    filename: str
+    status: str
+    page_count: int = 0
+    field_count: int = 0
+    confirmed: bool = False
+    updated_at: str = ""
+
+
+def _list_document_sessions() -> list[SessionSummary]:
+    if not TEMP_DIR.exists():
+        return []
+
+    sessions: list[SessionSummary] = []
+    for folder in TEMP_DIR.iterdir():
+        path = folder / "state.json"
+        if not path.is_file():
+            continue
+        try:
+            state = DocumentState.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        sessions.append(
+            SessionSummary(
+                document_id=state.document_id,
+                filename=state.filename,
+                status=state.status,
+                page_count=state.page_count,
+                field_count=len(state.fields),
+                confirmed=state.confirmed,
+                updated_at=str(int(path.stat().st_mtime)),
+            )
+        )
+
+    sessions.sort(key=lambda item: item.updated_at, reverse=True)
+    return sessions[:20]
+
+
+@router.get("/sessions")
+async def list_sessions() -> dict[str, object]:
+    sessions = _list_document_sessions()
+    return {"count": len(sessions), "sessions": [item.model_dump() for item in sessions]}
+
+
+@router.get("/sample/lab-report")
+async def sample_lab_report():
+    """Serve the bundled synthetic CBC lab report for portfolio demos."""
+    sample_path = BASE_DIR / "data" / "samples" / "sample-lab-report.pdf"
+    if not sample_path.exists():
+        raise HTTPException(status_code=404, detail="Sample lab report is not available.")
+    return FileResponse(
+        sample_path,
+        media_type="application/pdf",
+        filename="sample-lab-report.pdf",
+    )
 
 
 @router.post("/upload", response_model=UploadResponse)

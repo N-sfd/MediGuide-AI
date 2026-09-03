@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from src.labs.service import (
     create_observations_from_document,
     get_observation_detail,
+    latest_summary,
     list_tests,
     timeline_for_test,
 )
@@ -26,6 +27,12 @@ def get_timeline(test_code: str) -> dict[str, object]:
         "count": len(points),
         "points": points,
     }
+
+
+@router.get("/summary")
+def get_summary() -> dict[str, object]:
+    points = latest_summary()
+    return {"count": len(points), "points": points}
 
 
 @router.get("/observations/{observation_id}")
