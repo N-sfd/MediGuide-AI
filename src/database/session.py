@@ -55,6 +55,33 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
+def _ensure_sqlite_columns(engine: Engine) -> None:
+    """Add newly introduced columns on existing local SQLite databases."""
+    alterations = {
+        "extracted_fields": [
+            ("extraction_method", "VARCHAR(32) DEFAULT ''"),
+        ],
+        "lab_observations": [
+            ("confidence", "VARCHAR(64) DEFAULT ''"),
+            ("extraction_method", "VARCHAR(32) DEFAULT ''"),
+            ("range_status", "VARCHAR(64) DEFAULT 'unknown'"),
+        ],
+    }
+    with engine.begin() as connection:
+        for table, columns in alterations.items():
+            existing = {
+                row[1]
+                for row in connection.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            }
+            if not existing:
+                continue
+            for name, definition in columns:
+                if name not in existing:
+                    connection.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                    )
+
+
 def init_db() -> None:
     """Create tables when migrations have not been applied yet (local/dev)."""
     # Import models so metadata is populated.
@@ -63,6 +90,7 @@ def init_db() -> None:
     engine = get_engine()
     if DATABASE_URL.startswith("sqlite"):
         Base.metadata.create_all(bind=engine)
+        _ensure_sqlite_columns(engine)
 
 
 def probe_database() -> tuple[bool, str]:

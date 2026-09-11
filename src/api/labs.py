@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException
 
 from src.labs.service import (
     create_observations_from_document,
+    delete_document_labs,
+    delete_lab_observation,
     get_observation_detail,
     latest_summary,
     list_tests,
@@ -41,6 +43,20 @@ def get_observation(observation_id: str) -> dict[str, object]:
     if detail is None:
         raise HTTPException(status_code=404, detail="Observation not found.")
     return detail
+
+
+@router.delete("/observations/{observation_id}")
+def remove_observation(observation_id: str) -> dict[str, object]:
+    deleted = delete_lab_observation(observation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Observation not found.")
+    return {"deleted": True, "observation_id": observation_id}
+
+
+@router.delete("/documents/{document_id}")
+def remove_document_labs(document_id: str) -> dict[str, object]:
+    count = delete_document_labs(document_id)
+    return {"deleted": True, "document_id": document_id, "observation_count": count}
 
 
 @router.post("/from-document/{document_id}")

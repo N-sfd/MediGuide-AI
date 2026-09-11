@@ -102,6 +102,7 @@ class ExtractedField(Base):
     confidence: Mapped[str] = mapped_column(String(64), default="needs_review")
     page_number: Mapped[int] = mapped_column(Integer, default=1)
     source_text: Mapped[str] = mapped_column(Text, default="")
+    extraction_method: Mapped[str] = mapped_column(String(32), default="")
     user_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     user_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     # Reserved for Document Intelligence V2 source highlighting.
@@ -144,6 +145,9 @@ class LabObservation(Base):
     verification_state: Mapped[str] = mapped_column(
         String(32), default="human_verified"
     )
+    confidence: Mapped[str] = mapped_column(String(64), default="")
+    extraction_method: Mapped[str] = mapped_column(String(32), default="")
+    range_status: Mapped[str] = mapped_column(String(64), default="unknown")
     document_name: Mapped[str] = mapped_column(String(512), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

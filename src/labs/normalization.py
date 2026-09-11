@@ -85,18 +85,58 @@ def parse_numeric_value(value: str) -> Optional[float]:
         return None
 
 
+UNIT_MAP = {
+    "g/dl": "g/dL",
+    "g/dL": "g/dL",
+    "mg/dl": "mg/dL",
+    "mg/dL": "mg/dL",
+    "%": "%",
+    "10^3/ul": "10^3/uL",
+    "10^3/uL": "10^3/uL",
+    "x10^3/ul": "10^3/uL",
+    "x10e3/ul": "10^3/uL",
+    "mmol/l": "mmol/L",
+    "mmol/L": "mmol/L",
+}
+
+
+def normalize_unit(unit: str) -> str:
+    cleaned = (unit or "").strip()
+    if not cleaned:
+        return ""
+    return UNIT_MAP.get(cleaned, UNIT_MAP.get(cleaned.lower(), cleaned))
+
+
 def parse_reference_range(text: str) -> tuple[Optional[float], Optional[float]]:
     if not text:
         return None, None
-    cleaned = text.replace(",", " ")
+    cleaned = (
+        text.replace(",", " ")
+        .replace("–", "-")
+        .replace("—", "-")
+        .replace("≤", "<=")
+        .replace("≥", ">=")
+        .strip()
+    )
     match = re.search(
         r"(-?\d+(?:\.\d+)?)\s*[-–to]+\s*(-?\d+(?:\.\d+)?)",
         cleaned,
         flags=re.IGNORECASE,
     )
-    if not match:
-        return None, None
-    try:
-        return float(match.group(1)), float(match.group(2))
-    except ValueError:
-        return None, None
+    if match:
+        try:
+            return float(match.group(1)), float(match.group(2))
+        except ValueError:
+            return None, None
+    comparison = re.search(r"(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)", cleaned)
+    if comparison:
+        operator, bound_text = comparison.groups()
+        try:
+            bound = float(bound_text)
+        except ValueError:
+            return None, None
+        if operator in {"<", "<="}:
+            return None, bound
+        if operator in {">", ">="}:
+            return bound, None
+    return None, None

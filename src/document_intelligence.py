@@ -47,7 +47,15 @@ RETENTION_MINUTES = int(os.getenv("DOC_INTEL_RETENTION_MINUTES", "120"))
 SUPPORTED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 
 Confidence = Literal["clearly_visible", "needs_review", "could_not_read"]
-Status = Literal["in_listed_range", "outside_listed_range", "not_applicable", "unknown"]
+Status = Literal[
+    "in_listed_range",
+    "outside_listed_range",
+    "flagged_high_on_report",
+    "flagged_low_on_report",
+    "not_applicable",
+    "unknown",
+]
+ExtractionMethod = Literal["native_text", "vision_ocr", ""]
 
 
 class ExtractedField(BaseModel):
@@ -60,6 +68,7 @@ class ExtractedField(BaseModel):
     confidence: Confidence = "needs_review"
     page_number: int = Field(ge=1)
     source_text: str = ""
+    extraction_method: ExtractionMethod = ""
     user_edited: bool = False
 
 
@@ -171,18 +180,30 @@ def _cleanup_expired_sessions() -> None:
 
     There is no background scheduler anywhere in this app, so sessions
     are swept opportunistically on each upload rather than on a timer.
+    Confirmed sessions are retained longer so lab timeline source-page
+    drill-down can reopen the originating report.
     """
     if not TEMP_DIR.exists():
         return
 
     cutoff = time.time() - (RETENTION_MINUTES * 60)
+    confirmed_cutoff = time.time() - (RETENTION_MINUTES * 60 * 12)
 
     for session_dir in TEMP_DIR.iterdir():
         if not session_dir.is_dir():
             continue
 
         try:
-            if session_dir.stat().st_mtime < cutoff:
+            state_file = session_dir / "state.json"
+            confirmed = False
+            if state_file.exists():
+                try:
+                    payload = json.loads(state_file.read_text(encoding="utf-8"))
+                    confirmed = bool(payload.get("confirmed"))
+                except (OSError, json.JSONDecodeError):
+                    confirmed = False
+            age_cutoff = confirmed_cutoff if confirmed else cutoff
+            if session_dir.stat().st_mtime < age_cutoff:
                 shutil.rmtree(session_dir, ignore_errors=True)
         except OSError:
             continue
@@ -230,7 +251,11 @@ def _recompute_status(
         low, high = sorted(
             (float(range_match.group(1)), float(range_match.group(2)))
         )
-        return "in_listed_range" if low <= number <= high else "outside_listed_range"
+        if number < low:
+            return "flagged_low_on_report"
+        if number > high:
+            return "flagged_high_on_report"
+        return "in_listed_range"
 
     comparison_match = _COMPARISON_SEARCH_PATTERN.search(normalized)
 
@@ -243,7 +268,11 @@ def _recompute_status(
             ">": number > bound,
             ">=": number >= bound,
         }[operator]
-        return "in_listed_range" if in_range else "outside_listed_range"
+        if in_range:
+            return "in_listed_range"
+        if operator in {"<", "<="}:
+            return "flagged_high_on_report"
+        return "flagged_low_on_report"
 
     return model_status
 
@@ -302,7 +331,14 @@ def _extract_page_fields(
         if confidence not in {"clearly_visible", "needs_review", "could_not_read"}:
             confidence = "needs_review"
         status = item.get("status", "unknown")
-        if status not in {"in_listed_range", "outside_listed_range", "not_applicable", "unknown"}:
+        if status not in {
+            "in_listed_range",
+            "outside_listed_range",
+            "flagged_high_on_report",
+            "flagged_low_on_report",
+            "not_applicable",
+            "unknown",
+        }:
             status = "unknown"
         value = str(item.get("value", "")).strip()
         reference_range = str(item.get("reference_range", "")).strip()
@@ -317,6 +353,7 @@ def _extract_page_fields(
             confidence=confidence,
             page_number=page_number,
             source_text=str(item.get("source_text", "")).strip(),
+            extraction_method="vision_ocr",
         ))
     return result
 
@@ -403,6 +440,22 @@ async def _save_upload_file(
                 )
             out.write(chunk)
 
+    if suffix == ".pdf":
+        header = target.read_bytes()[:5]
+        if not header.startswith(b"%PDF"):
+            target.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="File is not a valid PDF.")
+        try:
+            doc = pymupdf.open(target)
+            page_count = doc.page_count
+            doc.close()
+        except Exception as error:
+            target.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="Invalid or unreadable PDF.") from error
+        if page_count < 1:
+            target.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="PDF has no pages.")
+
     return target, total
 
 
@@ -419,7 +472,7 @@ def _extract_native_text_fields(text: str, page_number: int) -> list[ExtractedFi
 
     index = 0
     for line in lines:
-        if re.search(r"^(?:sample|page\s*\d|report\s*date|patient|doctor|physician|date\b|test\s*name|component\b)", line, re.I):
+        if re.search(r"^(?:sample|page\s*\d|report\s*date|collection\s*date|patient|doctor|physician|date\b|test\s*name|component\b)", line, re.I):
             continue
 
         label: str = ""
@@ -473,6 +526,7 @@ def _extract_native_text_fields(text: str, page_number: int) -> list[ExtractedFi
                     confidence="clearly_visible",
                     page_number=page_number,
                     source_text=line,
+                    extraction_method="native_text",
                     user_edited=False,
                 )
             )
@@ -496,6 +550,7 @@ def _extract_native_text_fields(text: str, page_number: int) -> list[ExtractedFi
                 confidence="clearly_visible",
                 page_number=page_number,
                 source_text=date_match.group(0).strip(),
+                extraction_method="native_text",
                 user_edited=False,
             )
         )
@@ -650,7 +705,7 @@ async def list_sessions() -> dict[str, object]:
 
 @router.get("/sample/lab-report")
 async def sample_lab_report():
-    """Serve the bundled synthetic CBC lab report for portfolio demos."""
+    """Serve the bundled three-date synthetic lab report for portfolio demos."""
     sample_path = BASE_DIR / "data" / "samples" / "sample-lab-report.pdf"
     if not sample_path.exists():
         raise HTTPException(status_code=404, detail="Sample lab report is not available.")
@@ -827,20 +882,30 @@ async def confirm(document_id: str, request: ConfirmRequest):
     state.status = "confirmed"
     _save_state(state)
 
+    # Prefer human-confirmed date fields (supports multi-page / multi-date reports).
     report_date: str | None = None
-    pdf_path = _folder(document_id) / "document.pdf"
-    if pdf_path.exists():
-        try:
-            doc = pymupdf.open(pdf_path)
-            for page in doc:
-                txt = page.get_text("text")
-                m = re.search(r"(?:Report\s*date|Date|Collection\s*date)[:\s]*([0-9\-/]+)", txt, re.I)
-                if m:
-                    report_date = m.group(1).strip()
-                    break
-            doc.close()
-        except Exception:
-            pass
+    for field in state.fields:
+        if "date" in field.label.lower() and field.value.strip():
+            report_date = field.value.strip()
+            break
+    if not report_date:
+        pdf_path = _folder(document_id) / "document.pdf"
+        if pdf_path.exists():
+            try:
+                doc = pymupdf.open(pdf_path)
+                for page in doc:
+                    txt = page.get_text("text")
+                    m = re.search(
+                        r"(?:Report\s*date|Date|Collection\s*date)[:\s]*([0-9\-/]+)",
+                        txt,
+                        re.I,
+                    )
+                    if m:
+                        report_date = m.group(1).strip()
+                        break
+                doc.close()
+            except Exception:
+                pass
 
     persistence: dict[str, object] = {"persisted": False, "lab_observation_count": 0}
     try:

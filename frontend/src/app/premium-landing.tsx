@@ -96,20 +96,25 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
       <section className="premium-hero">
         <div className="premium-hero-copy reveal">
           <p className="eyebrow hero-trust-label">
-            <span /> PRIVATE • LOCAL • EVIDENCE-SUPPORTED
+            <span /> MEDIGUIDE AI — HEALTH DOCUMENT INTELLIGENCE
           </p>
           <h1>
-            Feel more informed.
+            MediGuide AI
             <br />
-            <i>Ask better questions.</i>
+            <i>Health Document Intelligence</i>
           </h1>
           <p>
-            MediGuide helps you understand health information, review medical documents and medication labels, use your
-            voice, and prepare for appointments with trusted evidence alongside you.
+            Transform uploaded health documents into structured, traceable information with lab extraction, longitudinal
+            timelines, source verification, and understandable explanations.
+          </p>
+          <p className="hero-grounded-note">
+            Built around grounded AI. Extracted information stays connected to its original document evidence, while educational
+            explanations are supported by approved health sources. MediGuide does not autonomously diagnose conditions, prescribe
+            treatment, or replace professional medical care.
           </p>
           <div className="hero-actions">
-            <button className="forest-button" onClick={() => handleStart("conversation")}>
-              Start a private session <ArrowUpRight size={17} />
+            <button className="forest-button" onClick={() => handleStart("documents", "upload")}>
+              Open document workspace <ArrowUpRight size={17} />
             </button>
             <button
               className="quiet-button"

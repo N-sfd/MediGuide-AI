@@ -98,6 +98,17 @@
   font: 400 15px / 1.6 var(--pl-sans);
 }
 
+.premium-hero-copy > p.hero-grounded-note {
+  max-width: 34rem;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid color-mix(in srgb, var(--forest) 55%, transparent);
+  background: color-mix(in srgb, var(--forest) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, var(--muted));
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
 .hero-trust-label {
   display: flex;
   align-items: center;

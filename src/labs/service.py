@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from src.database.repository import (
+    delete_document_observations,
+    delete_observation,
     get_latest_lab_summary,
     get_observation,
     get_timeline,
@@ -70,3 +72,15 @@ def latest_summary() -> list[dict[str, Any]]:
     ensure_db()
     with session_scope() as session:
         return get_latest_lab_summary(session)
+
+
+def delete_lab_observation(observation_id: str) -> bool:
+    ensure_db()
+    with session_scope() as session:
+        return delete_observation(session, observation_id)
+
+
+def delete_document_labs(document_id: str) -> int:
+    ensure_db()
+    with session_scope() as session:
+        return delete_document_observations(session, document_id)

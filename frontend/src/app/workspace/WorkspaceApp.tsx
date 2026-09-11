@@ -10,9 +10,9 @@ import "../workspace.css";
 type Source = { number: number; title: string; publisher: string; published?: string; reviewed?: string; url?: string; passage?: string };
 type LibrarySource = { id: string; title: string; publisher: string; url?: string; published?: string; reviewed?: string; type?: string };
 type Message = { role: "user" | "assistant"; content: string };
-type DocFieldStatus = "in_listed_range" | "outside_listed_range" | "not_applicable" | "unknown";
+type DocFieldStatus = "in_listed_range" | "outside_listed_range" | "flagged_high_on_report" | "flagged_low_on_report" | "not_applicable" | "unknown";
 type DocFieldConfidence = "clearly_visible" | "needs_review" | "could_not_read";
-type DocField = { field_id: string; label: string; value: string; unit: string; reference_range: string; status: DocFieldStatus; confidence: DocFieldConfidence; page_number: number; source_text: string; user_edited: boolean };
+type DocField = { field_id: string; label: string; value: string; unit: string; reference_range: string; status: DocFieldStatus; confidence: DocFieldConfidence; page_number: number; source_text: string; extraction_method?: string; user_edited: boolean };
 type DocPage = { page_number: number; preview_url: string; text_available: boolean; extracted_field_count: number };
 type DocState = { document_id: string; filename: string; page_count: number; status: string; pages: DocPage[]; fields: DocField[]; confirmed: boolean };
 type DocSession = { document_id: string; filename: string; status: string; page_count: number; field_count: number; confirmed: boolean };
@@ -25,7 +25,31 @@ type MedField = { key: string; label: string; value: string; confidence: DocFiel
 type MedState = { medication_id: string; source: "upload" | "typed"; filename: string; preview_url: string; status: string; fields: MedField[]; other_visible_text: string; confirmed: boolean };
 type MedInfo = { medication_id: string; answer_markdown: string; sources: DocEvidenceSource[]; limitations: string[] };
 type LabTest = { test_code: string; display_name: string; observation_count: number; has_data: boolean };
-type LabPoint = { observation_id: string; test_code: string; test_name: string; value: number | null; value_text: string; unit: string; report_date: string | null; document_id: string; document_name: string; page_number: number; field_id: string; verification_state: string; reference_text?: string; change_from_previous?: number | null; change_direction?: "up" | "down" | "unchanged" | null };
+type LabPoint = {
+  observation_id: string;
+  test_code: string;
+  test_name: string;
+  normalized_name?: string;
+  value: number | null;
+  value_text: string;
+  unit: string;
+  report_date: string | null;
+  collection_date?: string | null;
+  document_id: string;
+  document_name: string;
+  page_number: number;
+  source_page?: number;
+  field_id: string;
+  verification_state: string;
+  verification_status?: string;
+  confidence?: string;
+  extraction_method?: string;
+  range_status?: string;
+  reference_text?: string;
+  reference_range?: string;
+  change_from_previous?: number | null;
+  change_direction?: "up" | "down" | "unchanged" | null;
+};
 type SystemComponent = { name: string; key: string; status: string; detail: string };
 type SystemStatus = { service: string; overall: string; components: SystemComponent[]; knowledge: { active_chunks?: number; approved_sources?: number } };
 type View = "conversation" | "documents" | "labs" | "medication" | "visit" | "sources" | "system" | "evaluation" | "demo";
@@ -164,7 +188,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
   const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
   const [labTests, setLabTests] = useState<LabTest[]>([]);
-  const [selectedLabCode, setSelectedLabCode] = useState("hemoglobin");
+  const [selectedLabCode, setSelectedLabCode] = useState("hemoglobin_a1c");
   const [labPoints, setLabPoints] = useState<LabPoint[]>([]);
   const [labSummary, setLabSummary] = useState<LabPoint[]>([]);
   const [recentSessions, setRecentSessions] = useState<DocSession[]>([]);
@@ -625,6 +649,18 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     setTranscriptReviewed(false);
   }
 
+  async function deleteLabObservation(observationId: string) {
+    try {
+      const response = await fetch(`${API_URL}/api/labs/observations/${observationId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Could not delete this observation.");
+      setSelectedLabPoint(null);
+      await loadLabs(selectedLabCode);
+      await loadLabSummary();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete this observation.");
+    }
+  }
+
   function openLabTimeline(testCode?: string) {
     if (testCode) setSelectedLabCode(testCode);
     setSelectedLabPoint(null);
@@ -654,13 +690,17 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
       setConfirmedLabCodes(trackedCodes);
       if (labCount > 0) {
         setAddConfirmedLabsHint(`${labCount} lab observation${labCount === 1 ? "" : "s"} saved to your lab timeline.`);
-        if (trackedCodes.length) setSelectedLabCode(trackedCodes[0]);
-        void loadLabs(trackedCodes[0] || selectedLabCode);
+        if (trackedCodes.length) setSelectedLabCode(trackedCodes.includes("hemoglobin_a1c") ? "hemoglobin_a1c" : trackedCodes[0]);
+        void loadLabs(trackedCodes.includes("hemoglobin_a1c") ? "hemoglobin_a1c" : trackedCodes[0] || selectedLabCode);
         void loadLabSummary();
         void loadRecentSessions();
       } else {
         setAddConfirmedLabsHint("");
         setConfirmedLabCodes([]);
+      }
+      if (data.persistence && data.persistence.persisted === false) {
+        setError("Values were confirmed in this session, but the lab timeline could not be updated. Check System status, then try confirming again.");
+        setDocErrorKind("confirm");
       }
     } catch (err) {
       setDocErrorKind("confirm");
@@ -869,7 +909,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const medEvidenceSources: Source[] = (medInfo?.sources || []).map((source) => ({ number: source.citation_number, title: source.title, publisher: source.publisher, url: source.source_url, passage: source.passage }));
   const evidenceSources = view === "documents" && docExplain ? docEvidenceSources : view === "medication" && medInfo ? medEvidenceSources : sources;
   const evidenceContext = view === "documents" && !docExplain ? "document-review" : view === "documents" && docExplain ? "explaining" : view === "medication" && medInfo ? "explaining" : sources.length ? "chat" : "idle";
-  return <main className="product-shell workspace-enter"><header className="app-header"><button className="app-brand" onClick={() => router.push('/')}><span className="brand-mark"><ShieldCheck size={15} /></span><span>MediGuide <em>AI</em></span></button><button className="quiet-button header-home" type="button" onClick={() => router.push('/')}>Home</button><span className="header-context">Private · Local · Evidence-supported</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Private local</button><button className="icon-button" title="Help" aria-label="Help" onClick={() => setHelpOpen(true)}><HelpCircle size={18} /></button><button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button className="profile-button" title="Privacy" aria-label="Privacy" onClick={() => setPrivacyOpen(true)}><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button></header>{mobileNavOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}<div className={mobileNavOpen ? "workspace-grid mobile-nav-visible" : "workspace-grid"}><Sidebar view={view} setView={handleViewChange} onNew={() => { clearSession(); setMobileNavOpen(false); }} onPrivacy={() => { setPrivacyOpen(true); setMobileNavOpen(false); }} onClose={() => setMobileNavOpen(false)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} status={answerStatus} streaming={streaming} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onOpenView={handleViewChange} onOpenDocumentPage={openDocumentPage} onUpload={() => fileInput.current?.click()} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents apiUrl={API_URL} docState={docState} docFields={docFields} docConfirmed={docConfirmed} docReviewChecked={docReviewChecked} setDocReviewChecked={setDocReviewChecked} docSelectedPage={docSelectedPage} setDocSelectedPage={setDocSelectedPage} highlightedFieldId={highlightedFieldId} setHighlightedFieldId={setHighlightedFieldId} docExplain={docExplain} docQuestion={docQuestion} setDocQuestion={setDocQuestion} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={documentDragging} recentSessions={recentSessions} onOpenSession={(documentId) => void inspectDocument(documentId, 1)} onUpload={() => fileInput.current?.click()} onLoadSample={() => void loadSampleLabReport()} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} onFieldChange={updateDocField} onConfirm={() => void confirmDocument()} onExplain={() => void explainDocument()} onSuggestQuestions={suggestDocumentQuestions} onPrepareVisit={prepareVisitFromDocument} onAskAbout={askAboutDocument} onExportFields={exportDocumentFields} onOpenLabs={() => openLabTimeline(confirmedLabCodes[0])} onReset={resetDocument} loading={loadingStage} error={error} errorKind={docErrorKind} labsHint={addConfirmedLabsHint} confirmedLabCodes={confirmedLabCodes} onRetry={retryDocumentAction} onSystem={() => handleViewChange("system")} onRemove={resetDocument} />}{view === "labs" && <LabTimeline tests={labTests} selectedCode={selectedLabCode} onSelectCode={(code) => { setSelectedLabCode(code); setSelectedLabPoint(null); }} points={labPoints} selectedPoint={selectedLabPoint} onSelectPoint={setSelectedLabPoint} onInspectDocument={(documentId, pageNumber, fieldId) => void inspectDocument(documentId, pageNumber, fieldId)} onExport={exportLabPoints} onAddToVisit={addLabsToVisit} onAskAbout={askAboutLabs} apiUrl={API_URL} />}{view === "medication" && <Medication apiUrl={API_URL} medState={medState} medFields={medFields} medConfirmed={medConfirmed} medReviewChecked={medReviewChecked} setMedReviewChecked={setMedReviewChecked} medInfo={medInfo} medQuestion={medQuestion} setMedQuestion={setMedQuestion} medTypedText={medTypedText} setMedTypedText={setMedTypedText} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={medDragging} onUpload={() => medFileInput.current?.click()} onDrop={onMedDrop} onDragEnter={() => setMedDragging(true)} onDragLeave={() => setMedDragging(false)} onFieldChange={updateMedField} onConfirm={() => void confirmMedication()} onGetInfo={() => void getMedicationInfo()} onSubmitTyped={() => void submitTypedMedication(medTypedText)} onSample={loadDemoMedication} onPrepareVisit={prepareVisitFromMedication} onReset={resetMedication} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} step={visitStep} setStep={setVisitStep} labPoints={labSummary.length ? labSummary : labPoints} medFields={medFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} library={library} onSelect={setSelectedSource} />}{view === "demo" && <DemoMode onSampleCbc={loadDemoCbc} onSampleMedication={loadDemoMedication} onSampleVoice={() => { setQuestion(DEMO_VOICE_QUESTION); handleViewChange("conversation"); }} onSampleLabs={() => handleViewChange("labs")} onSampleVisit={() => { setVisitFields({ ...DEMO_VISIT }); setVisitStep(4); handleViewChange("visit"); }} />}{view === "evaluation" && <EvaluationDashboard />}{view === "system" && <SystemStatusView status={systemStatus} health={health} onRetry={() => { void checkHealth(); void loadSystemStatus(); }} />}{view !== "documents" && view !== "medication" && view !== "visit" && view !== "labs" && view !== "system" && view !== "demo" && view !== "evaluation" && <>
+  return <main className="product-shell workspace-enter"><header className="app-header"><button className="app-brand" onClick={() => router.push('/')}><span className="brand-mark"><ShieldCheck size={15} /></span><span>MediGuide <em>AI</em></span></button><button className="quiet-button header-home" type="button" onClick={() => router.push('/')}>Home</button><span className="header-context">Private · Local · Evidence-supported</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Private local</button><button className="icon-button" title="Help" aria-label="Help" onClick={() => setHelpOpen(true)}><HelpCircle size={18} /></button><button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button className="profile-button" title="Privacy" aria-label="Privacy" onClick={() => setPrivacyOpen(true)}><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button></header>{mobileNavOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}<div className={mobileNavOpen ? "workspace-grid mobile-nav-visible" : "workspace-grid"}><Sidebar view={view} setView={handleViewChange} onNew={() => { clearSession(); setMobileNavOpen(false); }} onPrivacy={() => { setPrivacyOpen(true); setMobileNavOpen(false); }} onClose={() => setMobileNavOpen(false)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} status={answerStatus} streaming={streaming} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onOpenView={handleViewChange} onOpenDocumentPage={openDocumentPage} onUpload={() => fileInput.current?.click()} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents apiUrl={API_URL} docState={docState} docFields={docFields} docConfirmed={docConfirmed} docReviewChecked={docReviewChecked} setDocReviewChecked={setDocReviewChecked} docSelectedPage={docSelectedPage} setDocSelectedPage={setDocSelectedPage} highlightedFieldId={highlightedFieldId} setHighlightedFieldId={setHighlightedFieldId} docExplain={docExplain} docQuestion={docQuestion} setDocQuestion={setDocQuestion} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={documentDragging} recentSessions={recentSessions} onOpenSession={(documentId) => void inspectDocument(documentId, 1)} onUpload={() => fileInput.current?.click()} onLoadSample={() => void loadSampleLabReport()} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} onFieldChange={updateDocField} onConfirm={() => void confirmDocument()} onExplain={() => void explainDocument()} onSuggestQuestions={suggestDocumentQuestions} onPrepareVisit={prepareVisitFromDocument} onAskAbout={askAboutDocument} onExportFields={exportDocumentFields} onOpenLabs={() => openLabTimeline(confirmedLabCodes[0])} onReset={resetDocument} loading={loadingStage} error={error} errorKind={docErrorKind} labsHint={addConfirmedLabsHint} confirmedLabCodes={confirmedLabCodes} onRetry={retryDocumentAction} onSystem={() => handleViewChange("system")} onRemove={resetDocument} />}{view === "labs" && <LabTimeline tests={labTests} selectedCode={selectedLabCode} onSelectCode={(code) => { setSelectedLabCode(code); setSelectedLabPoint(null); }} points={labPoints} selectedPoint={selectedLabPoint} onSelectPoint={setSelectedLabPoint} onInspectDocument={(documentId, pageNumber, fieldId) => void inspectDocument(documentId, pageNumber, fieldId)} onExport={exportLabPoints} onAddToVisit={addLabsToVisit} onAskAbout={askAboutLabs} onDeleteObservation={(observationId) => void deleteLabObservation(observationId)} />}{view === "medication" && <Medication apiUrl={API_URL} medState={medState} medFields={medFields} medConfirmed={medConfirmed} medReviewChecked={medReviewChecked} setMedReviewChecked={setMedReviewChecked} medInfo={medInfo} medQuestion={medQuestion} setMedQuestion={setMedQuestion} medTypedText={medTypedText} setMedTypedText={setMedTypedText} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={medDragging} onUpload={() => medFileInput.current?.click()} onDrop={onMedDrop} onDragEnter={() => setMedDragging(true)} onDragLeave={() => setMedDragging(false)} onFieldChange={updateMedField} onConfirm={() => void confirmMedication()} onGetInfo={() => void getMedicationInfo()} onSubmitTyped={() => void submitTypedMedication(medTypedText)} onSample={loadDemoMedication} onPrepareVisit={prepareVisitFromMedication} onReset={resetMedication} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} step={visitStep} setStep={setVisitStep} labPoints={labSummary.length ? labSummary : labPoints} medFields={medFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} library={library} onSelect={setSelectedSource} />}{view === "demo" && <DemoMode onSampleCbc={loadDemoCbc} onSampleMedication={loadDemoMedication} onSampleVoice={() => { setQuestion(DEMO_VOICE_QUESTION); handleViewChange("conversation"); }} onSampleLabs={() => handleViewChange("labs")} onSampleVisit={() => { setVisitFields({ ...DEMO_VISIT }); setVisitStep(4); handleViewChange("visit"); }} />}{view === "evaluation" && <EvaluationDashboard />}{view === "system" && <SystemStatusView status={systemStatus} health={health} onRetry={() => { void checkHealth(); void loadSystemStatus(); }} />}{view !== "documents" && view !== "medication" && view !== "visit" && view !== "labs" && view !== "system" && view !== "demo" && view !== "evaluation" && <>
           {pendingTranscript && <TranscriptReview text={pendingTranscript} setText={setPendingTranscript} reviewed={transcriptReviewed} setReviewed={setTranscriptReviewed} onConfirm={confirmTranscript} onDiscard={() => { setPendingTranscript(""); setTranscriptReviewed(false); }} />}
           <Composer question={question} setQuestion={setQuestion} onSubmit={sendQuestion} onKeyDown={handleComposerKey} onUpload={() => fileInput.current?.click()} onVoice={toggleVoice} recording={recording} loading={Boolean(loadingStage)} answerDetail={answerDetail} setAnswerDetail={setAnswerDetail} readingLevel={readingLevel} setReadingLevel={setReadingLevel} />
         </>}<input ref={fileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onFileChange} /><input ref={medFileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onMedFileChange} /></section><Evidence sources={evidenceSources} selected={selectedSource} onSelect={setSelectedSource} context={evidenceContext} onOpenSources={() => handleViewChange("sources")} /></div>{privacyOpen && <Privacy onClose={() => setPrivacyOpen(false)} onClear={clearSession} />}{helpOpen && <HelpDrawer onClose={() => setHelpOpen(false)} onOpenView={(next) => { setHelpOpen(false); handleViewChange(next); }} />}{settingsOpen && <SettingsDrawer answerDetail={answerDetail} setAnswerDetail={setAnswerDetail} readingLevel={readingLevel} setReadingLevel={setReadingLevel} language={language} setLanguage={setLanguage} onClose={() => setSettingsOpen(false)} />}{healthOpen && <Health health={health} onClose={() => setHealthOpen(false)} onRetry={checkHealth} />}</main>;
@@ -1051,7 +1091,14 @@ function Evidence({ sources, selected, onSelect, context = "idle", onOpenSources
   </aside>;
 }
 
-const DOC_STATUS_LABELS: Record<DocFieldStatus, string> = { in_listed_range: "In range", outside_listed_range: "Outside range", not_applicable: "N/A", unknown: "Unknown" };
+const DOC_STATUS_LABELS: Record<DocFieldStatus, string> = {
+  in_listed_range: "",
+  outside_listed_range: "",
+  flagged_high_on_report: "Flagged high on this report",
+  flagged_low_on_report: "Flagged low on this report",
+  not_applicable: "",
+  unknown: "",
+};
 const DOC_CONFIDENCE_LABELS: Record<DocFieldConfidence, string> = { clearly_visible: "Clearly visible", needs_review: "Needs review", could_not_read: "Could not read" };
 
 function Documents({
@@ -1111,7 +1158,7 @@ function Documents({
   if (!docState) {
     return <div className="workflow-view">
       <div className="workflow-heading-row">
-        <div><p className="eyebrow">DOCUMENT REVIEW</p><h2>Understand the details.</h2><p className="workflow-lead">Upload a lab report, medication label, or health document — review every extracted value before MediGuide explains it.</p></div>
+        <div><p className="eyebrow">DOCUMENT REVIEW</p><h2>Understand the details.</h2><p className="workflow-lead">Information found in your report — review every extracted value before any explanation.</p></div>
         <span className="workflow-badge"><ShieldCheck size={14} /> Human review first</span>
       </div>
       {!loading && <div className={dragging ? "upload-zone is-dragging" : "upload-zone"} onDrop={onDrop} onDragEnter={(event) => { event.preventDefault(); onDragEnter(); }} onDragOver={(event) => event.preventDefault()} onDragLeave={onDragLeave}>
@@ -1121,7 +1168,7 @@ function Documents({
         <small>PDF, PNG, JPG, WEBP · Multi-page supported · Temporary session file</small>
         <div className="upload-actions">
           <button className="forest-button" type="button" onClick={onUpload}>Choose file <Paperclip size={16} /></button>
-          <button className="quiet-button" type="button" onClick={onLoadSample}>Try sample lab report</button>
+          <button className="quiet-button" type="button" onClick={onLoadSample}>Try three-date sample lab report</button>
         </div>
       </div>}
       {loading && <div className="processing large"><Sparkles size={18} /> {loading}<i /><i /><i /></div>}
@@ -1149,7 +1196,7 @@ function Documents({
 
   return <div className="workflow-view doc-intel-view">
     <div className="workflow-heading-row">
-      <div><p className="eyebrow">DOCUMENT REVIEW</p><h2>{docState.filename}</h2><p className="workflow-lead">{docState.page_count} page{docState.page_count === 1 ? "" : "s"} · {docConfirmed ? "Confirmed by you" : "Review each value before confirming"}</p></div>
+      <div><p className="eyebrow">DOCUMENT REVIEW</p><h2>{docState.filename}</h2><p className="workflow-lead">{docState.page_count} page{docState.page_count === 1 ? "" : "s"} · {docConfirmed ? "Confirmed by you" : "Information found in your report — review before confirming"}</p></div>
       <div className="heading-actions">
         {docFields.length > 0 && <button className="quiet-button" onClick={onExportFields}><Clipboard size={14} /> Export fields</button>}
         <button className="quiet-button" onClick={onReset}><RefreshCw size={14} /> Upload a different document</button>
@@ -1195,8 +1242,10 @@ function Documents({
       </div>
 
       <div className="extracted-fields doc-fields">
-        <p className="eyebrow">PAGE {docSelectedPage} · EXTRACTED VALUES</p>
-        {visibleFields.length === 0 && <p className="doc-fields-empty">No fields were extracted on this page.</p>}
+        <p className="eyebrow">PAGE {docSelectedPage}</p>
+        <h3 className="doc-fields-heading">Extracted lab information</h3>
+        <p className="doc-fields-support">Information found in your report</p>
+        {visibleFields.length === 0 && <p className="doc-fields-empty">No information was found on this page.</p>}
         {visibleFields.map((field) => (
           <div
             key={field.field_id}
@@ -1206,7 +1255,9 @@ function Documents({
             <div className="doc-field-label">
               <strong>{field.label}</strong>
               <span className={`confidence-pill confidence-${field.confidence}`}>{DOC_CONFIDENCE_LABELS[field.confidence]}</span>
-              {(field.status === "in_listed_range" || field.status === "outside_listed_range") && <span className={`status-pill status-pill-${field.status}`}>{DOC_STATUS_LABELS[field.status]}</span>}
+              {(field.status === "flagged_high_on_report" || field.status === "flagged_low_on_report") && DOC_STATUS_LABELS[field.status] ? (
+                <span className={`status-pill status-pill-${field.status}`}>{DOC_STATUS_LABELS[field.status]}</span>
+              ) : null}
             </div>
             <div className="doc-field-inputs">
               <label>Value<input value={field.value} readOnly={docConfirmed} onChange={(event) => onFieldChange(field.field_id, { value: event.target.value })} /></label>
@@ -1557,14 +1608,41 @@ function EvaluationDashboard() {
   </div>;
 }
 
-function LabTimeline({ tests, selectedCode, onSelectCode, points, selectedPoint, onSelectPoint, onInspectDocument, onExport, onAddToVisit, onAskAbout, apiUrl }: { tests: LabTest[]; selectedCode: string; onSelectCode: (code: string) => void; points: LabPoint[]; selectedPoint: LabPoint | null; onSelectPoint: (point: LabPoint | null) => void; onInspectDocument: (documentId: string, pageNumber: number, fieldId?: string) => void; onExport: () => void; onAddToVisit: () => void; onAskAbout: () => void; apiUrl: string }) {
+function reportFlagLabel(status?: string) {
+  if (status === "flagged_high_on_report") return "Flagged high on this report";
+  if (status === "flagged_low_on_report") return "Flagged low on this report";
+  return "";
+}
+
+function LabTimeline({
+  tests, selectedCode, onSelectCode, points, selectedPoint, onSelectPoint, onInspectDocument, onExport, onAddToVisit, onAskAbout, onDeleteObservation,
+}: {
+  tests: LabTest[];
+  selectedCode: string;
+  onSelectCode: (code: string) => void;
+  points: LabPoint[];
+  selectedPoint: LabPoint | null;
+  onSelectPoint: (point: LabPoint | null) => void;
+  onInspectDocument: (documentId: string, pageNumber: number, fieldId?: string) => void;
+  onExport: () => void;
+  onAddToVisit: () => void;
+  onAskAbout: () => void;
+  onDeleteObservation: (observationId: string) => void;
+}) {
   const maxValue = Math.max(...points.map((point) => point.value ?? 0), 1);
+  const activeTest = (tests.find((test) => test.test_code === selectedCode)?.display_name) || selectedCode;
+  const selectedDate = selectedPoint?.collection_date || selectedPoint?.report_date;
+  const selectedPage = selectedPoint?.source_page || selectedPoint?.page_number || 1;
+  const selectedReference = selectedPoint?.reference_range || selectedPoint?.reference_text;
+  const selectedVerification = selectedPoint?.verification_status || selectedPoint?.verification_state;
+  const reportFlag = reportFlagLabel(selectedPoint?.range_status);
+
   return <div className="workflow-view lab-timeline-view">
     <div className="workflow-heading-row">
       <div>
         <p className="eyebrow">LAB RESULTS TIMELINE</p>
         <h2>Verified observations over time.</h2>
-        <p className="workflow-lead">Every point links back to a confirmed document page — document, page, field, date, unit, and verification state.</p>
+        <p className="workflow-lead">Click a measurement to open its provenance drawer, then view the source page in the original report.</p>
       </div>
       <div className="heading-actions">
         <button type="button" className="quiet-button" onClick={onAskAbout} disabled={!points.length}><Sparkles size={14} /> Ask about these labs</button>
@@ -1573,7 +1651,7 @@ function LabTimeline({ tests, selectedCode, onSelectCode, points, selectedPoint,
       </div>
     </div>
     <div className="lab-test-row" role="tablist" aria-label="Tracked lab tests">
-      {(tests.length ? tests : [{ test_code: "hemoglobin", display_name: "Hemoglobin", observation_count: 0, has_data: false }]).map((test) => (
+      {(tests.length ? tests : [{ test_code: "hemoglobin_a1c", display_name: "Hemoglobin A1C", observation_count: 0, has_data: false }]).map((test) => (
         <button key={test.test_code} type="button" className={selectedCode === test.test_code ? "lab-test-chip active" : "lab-test-chip"} onClick={() => onSelectCode(test.test_code)}>
           {test.display_name}
           <small>{test.observation_count}</small>
@@ -1582,13 +1660,13 @@ function LabTimeline({ tests, selectedCode, onSelectCode, points, selectedPoint,
     </div>
     <div className="lab-chart-panel">
       {points.length ? (
-        <div className="lab-chart" role="list">
+        <div className="lab-chart" role="list" aria-label={`${activeTest} timeline`}>
           {points.map((point) => {
             const height = Math.max(12, ((point.value ?? 0) / maxValue) * 100);
             return <button type="button" key={point.observation_id} className={selectedPoint?.observation_id === point.observation_id ? "lab-point selected" : "lab-point"} style={{ height: `${height}%` }} onClick={() => onSelectPoint(point)} role="listitem" title={`${point.value_text} ${point.unit}`}>
               <span className="lab-point-dot" />
               <strong>{point.value_text}</strong>
-              <small>{point.report_date || "Unknown date"}</small>
+              <small>{point.collection_date || point.report_date || "Unknown date"}</small>
             </button>;
           })}
         </div>
@@ -1596,45 +1674,51 @@ function LabTimeline({ tests, selectedCode, onSelectCode, points, selectedPoint,
         <div className="lab-empty">
           <TrendingUp size={22} />
           <strong>No verified observations yet</strong>
-          <p>Confirm a lab report in Documents, or run <code>python scripts/seed_demo_labs.py</code> for sample portfolio data.</p>
+          <p>Open Documents and try the three-date sample lab report. Confirm the extracted lab information to build this timeline.</p>
         </div>
       )}
     </div>
     {points.length > 0 && <table className="lab-table">
-      <thead><tr><th>Date</th><th>Value</th><th>Change</th><th>Document</th></tr></thead>
+      <thead><tr><th>Date</th><th>Value</th><th>Change</th><th>Document</th><th>Page</th></tr></thead>
       <tbody>
         {points.map((point) => (
           <tr key={point.observation_id} className={selectedPoint?.observation_id === point.observation_id ? "selected" : ""} onClick={() => onSelectPoint(point)}>
-            <td>{point.report_date || "Unknown"}</td>
+            <td>{point.collection_date || point.report_date || "Unknown"}</td>
             <td>{point.value_text} {point.unit}</td>
             <td>{point.change_from_previous == null ? "—" : `${point.change_from_previous > 0 ? "+" : ""}${point.change_from_previous}`}</td>
             <td>{point.document_name}</td>
+            <td>{point.source_page || point.page_number}</td>
           </tr>
         ))}
       </tbody>
     </table>}
-    {selectedPoint && <aside className="lab-point-detail">
-      <p className="eyebrow">RESULT DETAILS</p>
-      <h3>{selectedPoint.value_text} {selectedPoint.unit}</h3>
-      <p className="lab-verified"><Check size={14} /> {selectedPoint.verification_state === "human_verified" ? "Human verified" : selectedPoint.verification_state}</p>
-      <dl>
-        <div><dt>Test</dt><dd>{selectedPoint.test_name}</dd></div>
-        <div><dt>Report date</dt><dd>{selectedPoint.report_date || "Not listed"}</dd></div>
-        <div><dt>Document</dt><dd>{selectedPoint.document_name}</dd></div>
-        <div><dt>Page</dt><dd>{selectedPoint.page_number}</dd></div>
-        <div><dt>Field</dt><dd>{selectedPoint.field_id}</dd></div>
-        {selectedPoint.reference_text ? <div><dt>Reference</dt><dd>{selectedPoint.reference_text}</dd></div> : null}
-        {selectedPoint.change_from_previous != null ? <div><dt>Change from previous</dt><dd>{selectedPoint.change_from_previous > 0 ? "+" : ""}{selectedPoint.change_from_previous} {selectedPoint.unit}{selectedPoint.change_direction ? ` (${selectedPoint.change_direction})` : ""}</dd></div> : null}
-      </dl>
-      <div className="lab-point-actions" style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "14px" }}>
-        <button type="button" className="forest-button" onClick={() => onInspectDocument(selectedPoint.document_id, selectedPoint.page_number, selectedPoint.field_id)}>
-          <FileText size={14} /> Open in Document Viewer
-        </button>
-        <a className="quiet-button lab-preview-link" href={`${apiUrl}/api/documents/v2/${selectedPoint.document_id}/pages/${selectedPoint.page_number}/preview`} target="_blank" rel="noreferrer" style={{ justifyContent: "center" }}>
-          <ArrowUpRight size={14} /> Open source page preview
-        </a>
-      </div>
-    </aside>}
+    {selectedPoint && <div className="drawer-backdrop lab-result-drawer-backdrop" onClick={() => onSelectPoint(null)}>
+      <aside className="drawer lab-result-drawer" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="Result provenance">
+        <button className="drawer-close" type="button" onClick={() => onSelectPoint(null)} aria-label="Close"><X size={18} /></button>
+        <p className="eyebrow">PROVENANCE</p>
+        <h2>{selectedPoint.test_name}</h2>
+        <p className="lab-result-value">{selectedPoint.value_text} {selectedPoint.unit}</p>
+        <dl>
+          <div><dt>Value</dt><dd>{selectedPoint.value_text}</dd></div>
+          <div><dt>Unit</dt><dd>{selectedPoint.unit || "Not listed"}</dd></div>
+          <div><dt>Collection date</dt><dd>{selectedDate || "Not listed"}</dd></div>
+          <div><dt>Printed reference range</dt><dd>{selectedReference || "Not listed on report"}</dd></div>
+          <div><dt>Report flag</dt><dd>{reportFlag || "None from printed range"}</dd></div>
+          <div><dt>Verification status</dt><dd>{selectedVerification === "confirmed" || selectedVerification === "human_verified" ? "Human confirmed" : (selectedVerification || "Unknown")}</dd></div>
+          <div><dt>Source document</dt><dd>{selectedPoint.document_name}</dd></div>
+          <div><dt>Source page</dt><dd>{selectedPage}</dd></div>
+        </dl>
+        <div className="lab-point-actions">
+          <button type="button" className="forest-button" onClick={() => onInspectDocument(selectedPoint.document_id, selectedPage, selectedPoint.field_id)}>
+            <FileText size={14} /> View source page
+          </button>
+          <button type="button" className="quiet-button destructive-action" onClick={() => onDeleteObservation(selectedPoint.observation_id)}>
+            <Trash2 size={14} /> Delete result
+          </button>
+          <p className="lab-delete-note">Removes this timeline observation only. The source document stays available until you clear it separately.</p>
+        </div>
+      </aside>
+    </div>}
   </div>;
 }
 
@@ -1692,14 +1776,14 @@ function HelpDrawer({ onClose, onOpenView }: { onClose: () => void; onOpenView: 
     <button className="drawer-close" onClick={onClose}><X size={18} /></button>
     <p className="eyebrow">HELP</p>
     <h2>How MediGuide works.</h2>
-    <p>Educational support with human review before explanation.</p>
+    <p>Health Document Intelligence with human review before explanation. Extracted lab information stays linked to its source page.</p>
     <ul className="help-steps">
-      <li><button type="button" onClick={() => onOpenView("documents")}><FileText size={15} /> Documents</button> Upload → extract → confirm values → optional explanation.</li>
-      <li><button type="button" onClick={() => onOpenView("labs")}><FlaskConical size={15} /> Lab Timeline</button> Confirmed labs become dated points with source-page drill-down.</li>
+      <li><button type="button" onClick={() => onOpenView("documents")}><FileText size={15} /> Documents</button> Upload the three-date sample → review extracted lab information → confirm.</li>
+      <li><button type="button" onClick={() => onOpenView("labs")}><FlaskConical size={15} /> Lab Timeline</button> Confirmed labs become dated points. Open a result drawer, then View source page.</li>
       <li><button type="button" onClick={() => onOpenView("medication")}><Pill size={15} /> Medications</button> Review a label, then request educational information.</li>
       <li><button type="button" onClick={() => onOpenView("visit")}><Stethoscope size={15} /> Visit prep</button> Turn notes, labs, and medications into questions.</li>
     </ul>
-    <p className="patient-note"><ShieldCheck size={16} /> Not a diagnosis or personalized treatment plan.</p>
+    <p className="patient-note"><ShieldCheck size={16} /> MediGuide does not autonomously diagnose conditions, prescribe treatment, or replace professional medical care.</p>
   </aside></div>;
 }
 

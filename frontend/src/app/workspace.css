@@ -543,6 +543,86 @@
   background: color-mix(in srgb, var(--panel) 94%, white);
 }
 
+.lab-result-drawer {
+  max-width: 420px;
+}
+
+.lab-result-drawer .lab-result-value {
+  margin: 4px 0 10px;
+  font-size: 1.55rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.lab-result-drawer dl {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 18px;
+}
+
+.lab-result-drawer dl div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+}
+
+.lab-result-drawer dt {
+  opacity: 0.65;
+  font-size: 0.86rem;
+}
+
+.lab-result-drawer .lab-point-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lab-delete-note {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.72;
+}
+
+.destructive-action {
+  color: #8a3030 !important;
+  border-color: color-mix(in srgb, #8a3030 28%, transparent) !important;
+}
+
+.doc-fields-heading {
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.doc-fields-support {
+  margin: 2px 0 14px;
+  font-size: 0.9rem;
+  opacity: 0.72;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.status-pill-in_listed_range {
+  color: #1f5b45;
+  background: color-mix(in srgb, #1f5b45 12%, white);
+}
+
+.status-pill-flagged_high_on_report,
+.status-pill-flagged_low_on_report,
+.status-pill-outside_listed_range {
+  color: #8a4b16;
+  background: color-mix(in srgb, #c47b2c 14%, white);
+}
+
 .lab-point-detail dl {
   display: grid;
   gap: 8px;
