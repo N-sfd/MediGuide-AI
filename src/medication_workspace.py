@@ -12,7 +12,6 @@ from typing import Any, Literal
 import pymupdf
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from ollama import Client
 from PIL import Image
 from pydantic import BaseModel, Field
 
@@ -20,6 +19,17 @@ from src.config import BASE_DIR, MAX_IMAGE_MB, MODEL_NAME, OLLAMA_HOST, VISION_M
 from src.document_intelligence import EvidenceSource, retrieve_approved_evidence
 from src.image_validator import validate_image_file
 from src.safety import check_for_emergency
+
+
+def _ollama_client():
+    try:
+        from ollama import Client
+    except ImportError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The AI text/vision service is not installed on this deployment.",
+        ) from error
+    return Client(host=OLLAMA_HOST)
 
 
 router = APIRouter(prefix="/api/medications/v2", tags=["Medication Workspace V2"])
@@ -195,7 +205,7 @@ def _build_fields(data: dict[str, Any]) -> tuple[list[MedicationField], str]:
 
 
 def _extract_from_image(image_path: Path) -> tuple[list[MedicationField], str]:
-    client = Client(host=OLLAMA_HOST)
+    client = _ollama_client()
     response = client.chat(
         model=VISION_MODEL,
         messages=[{
@@ -209,7 +219,7 @@ def _extract_from_image(image_path: Path) -> tuple[list[MedicationField], str]:
 
 
 def _extract_from_text(label_text: str) -> tuple[list[MedicationField], str]:
-    client = Client(host=OLLAMA_HOST)
+    client = _ollama_client()
     response = client.chat(
         model=TEXT_MODEL,
         messages=[{
@@ -486,7 +496,7 @@ STRICT RULES:
 - Do not invent citations or medication facts not present in the approved evidence.
 """
 
-    client = Client(host=OLLAMA_HOST)
+    client = _ollama_client()
     response = client.chat(
         model=TEXT_MODEL,
         messages=[

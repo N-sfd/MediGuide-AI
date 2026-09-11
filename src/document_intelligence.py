@@ -13,11 +13,9 @@ from typing import Any, Literal
 import pymupdf
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from ollama import Client
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from src.citations import build_citation_sources
 from src.config import (
     BASE_DIR,
     MAX_IMAGE_MB,
@@ -28,7 +26,6 @@ from src.config import (
 )
 from src.image_validator import validate_image_file
 from src.labs.service import create_observations_from_document
-from src.retriever import diversify_results, retrieve_chunks
 from src.safety import check_for_emergency
 
 
@@ -312,17 +309,32 @@ def _extract_page_fields(
     page_number: int,
     native_text: str,
 ) -> list[ExtractedField]:
-    client = Client(host=OLLAMA_HOST)
-    response = client.chat(
-        model=VISION_MODEL,
-        messages=[{
-            "role": "user",
-            "content": EXTRACTION_PROMPT + "\n\n<native_document_text>\n"
-                       + native_text[:12000] + "\n</native_document_text>",
-            "images": [str(image_path)],
-        }],
-        options={"temperature": 0.0},
-    )
+    try:
+        from ollama import Client
+    except ImportError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Vision OCR is unavailable on this deployment. Upload a digital PDF with selectable text.",
+        ) from error
+
+    try:
+        client = Client(host=OLLAMA_HOST)
+        response = client.chat(
+            model=VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": EXTRACTION_PROMPT + "\n\n<native_document_text>\n"
+                           + native_text[:12000] + "\n</native_document_text>",
+                "images": [str(image_path)],
+            }],
+            options={"temperature": 0.0},
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Vision OCR is unavailable ({type(error).__name__}). Use a digital PDF with selectable text.",
+        ) from error
+
     data = _parse_json(response.message.content)
     result: list[ExtractedField] = []
     for i, item in enumerate(data.get("fields", [])):
@@ -367,6 +379,9 @@ def retrieve_approved_evidence(query: str, top_k: int = 5) -> list[dict[str, Any
     — callers already treat an empty list as "no supporting evidence".
     """
     try:
+        from src.citations import build_citation_sources
+        from src.retriever import diversify_results, retrieve_chunks
+
         chunks = diversify_results(retrieve_chunks(query, top_k=top_k))
     except Exception:
         return []
@@ -1014,19 +1029,40 @@ Include:
 - Questions to ask your clinician
 """
 
-    client = Client(host=OLLAMA_HOST)
-    response = client.chat(
-        model=TEXT_MODEL,
-        messages=[
-            {"role": "system", "content": "Use only confirmed document data and supplied approved evidence."},
-            {"role": "user", "content": prompt},
-        ],
-        options={"temperature": 0.1},
-    )
+    try:
+        from ollama import Client
+
+        client = Client(host=OLLAMA_HOST)
+        response = client.chat(
+            model=TEXT_MODEL,
+            messages=[
+                {"role": "system", "content": "Use only confirmed document data and supplied approved evidence."},
+                {"role": "user", "content": prompt},
+            ],
+            options={"temperature": 0.1},
+        )
+        answer = response.message.content.strip()
+    except Exception:
+        return ExplainResponse(
+            document_id=document_id,
+            answer_markdown=(
+                "### Confirmed document information\n\n"
+                "The text model is unavailable on this deployment, so MediGuide is showing "
+                "only the user-confirmed fields from your report.\n\n"
+                + context
+            ),
+            document_pages_cited=pages,
+            sources=sources,
+            limitations=[
+                "Educational explanation model is unavailable on this deployment.",
+                "Document fields were reviewed and confirmed by the user.",
+                "This is not a diagnosis or treatment recommendation.",
+            ],
+        )
 
     return ExplainResponse(
         document_id=document_id,
-        answer_markdown=response.message.content.strip(),
+        answer_markdown=answer,
         document_pages_cited=pages,
         sources=sources,
         limitations=[

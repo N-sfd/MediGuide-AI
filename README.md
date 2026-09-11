@@ -54,20 +54,65 @@ The frontend runs at `http://localhost:3000` and the API docs at `http://localho
 
 ## Deploy
 
-### Backend
+### Backend on Render (recommended for Health Document Intelligence)
 
-Build and run the API container in an environment with access to the configured Ollama host and the approved knowledge store:
+Flagship path on Render does **not** require Ollama: upload → PyMuPDF native text → structured labs → verification → lab timeline.
+
+1. Push this repository to GitHub.
+2. Render → **New** → **Web Service** → select `MediGuide-AI` (do not change any other project).
+3. Use one of these configurations:
+
+**Option A — Docker (uses `Dockerfile.render`)**
+
+| Field | Value |
+|---|---|
+| Root Directory | *(leave empty)* |
+| Runtime | Docker |
+| Dockerfile Path | `Dockerfile.render` |
+| Health Check Path | `/api/health` |
+
+**Option B — Native Python**
+
+| Field | Value |
+|---|---|
+| Root Directory | *(leave empty)* |
+| Runtime | Python 3 |
+| Build Command | `pip install -r requirements-render.txt` |
+| Start Command | `uvicorn api:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/api/health` |
+
+**Environment variables**
+
+| Key | Value |
+|---|---|
+| `FRONTEND_ORIGINS` | `https://mediguide-ai-woad.vercel.app,http://localhost:3000,http://127.0.0.1:3000` |
+| `DATABASE_URL` | `sqlite:///data/mediguide.db` |
+| `DOC_INTEL_TEMP_DIR` | `/tmp/mediguide_docs` |
+
+4. After deploy, open `https://YOUR-SERVICE.onrender.com/api/health`. You should see `"service": "mediguide-api"` with `"document_processing": "available"` even when `"ollama": "unavailable"`.
+
+### Connect Vercel after health is green
+
+In Vercel → MediGuide project → Settings → Environment Variables:
+
+| Key | Value |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | `https://YOUR-SERVICE.onrender.com` |
+
+No `/api`, no `/docs`, no trailing slash. Then **Redeploy** the frontend.
+
+### Backend Docker (local / full AI stack)
 
 ```powershell
-docker build -t mediguide-api .
-docker run --env-file .env -p 8000:8000 mediguide-api
+docker build -t mediguide-api -f Dockerfile.render .
+docker run -p 8000:8000 mediguide-api
 ```
 
-For a remote deployment, set `OLLAMA_HOST`, model names, and the vector-store configuration in the backend environment. Keep the API behind HTTPS and restrict `allow_origins` in `api.py` to the deployed frontend origin.
+For the full local AI stack (Ollama, Whisper, Piper), use `Dockerfile` + `requirements.txt` and set `OLLAMA_HOST`.
 
 ### Frontend on Vercel
 
-Import the `frontend` directory as the Vercel project root and set `NEXT_PUBLIC_API_URL` to the HTTPS URL of the separately deployed backend. Build command: `npm run build`.
+Import the `frontend` directory as the Vercel project root and set `NEXT_PUBLIC_API_URL` to the HTTPS URL of the Render FastAPI service. Build command: `npm run build`.
 
 ### Frontend on Cloudflare Workers
 

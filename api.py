@@ -36,14 +36,11 @@ from src.config import (
 )
 from src.document_intelligence import router as document_intelligence_router
 from src.document_loader import load_metadata
-from src.image_analyzer import analyze_medical_document_image
 from src.medication_workspace import router as medication_workspace_router
 from src.api.labs import router as labs_router
-from src.rag_chatbot import stream_rag_events
-from src.transcriber import transcribe_audio
-from src.tts import TextToSpeechError, synthesize_speech
 from src.database.session import init_db, probe_database
 from src.agents import MedicalAgentOrchestrator, OrchestratorRequest
+from src.tts import TextToSpeechError
 
 OLLAMA_PROBE_TIMEOUT = float(os.getenv("OLLAMA_PROBE_TIMEOUT", "2.5"))
 UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -79,26 +76,27 @@ class SpeakRequest(BaseModel):
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
-app = FastAPI(title="MediGuide AI API", version="1.1.0")
+app = FastAPI(title="MediGuide AI API", version="1.2.0")
 
-# Local Next.js + Cloudflare Workers/Pages + Vercel frontend origins.
+# Production frontend (Vercel) + local Next.js. FRONTEND_ORIGINS can extend the list.
 _DEFAULT_ORIGINS = [
+    "https://mediguide-ai-woad.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://medi.naziaasif1412.workers.dev",
     "https://frontend.naziaasif1412.workers.dev",
-    "https://mediguide-ai-woad.vercel.app",
 ]
 _env_origins = [
     origin.strip()
     for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
     if origin.strip()
 ]
+_allow_origins = list(dict.fromkeys([*_DEFAULT_ORIGINS, *_env_origins]))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_env_origins or _DEFAULT_ORIGINS,
+    allow_origins=_allow_origins,
     allow_origin_regex=r"https://.*\.(workers\.dev|pages\.dev|vercel\.app)",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -114,9 +112,9 @@ app.include_router(labs_router)
 def root() -> dict[str, object]:
     """Avoid a bare JSON 404 when someone opens the API URL in a browser."""
     return {
-        "service": "MediGuide AI API",
+        "service": "mediguide-api",
         "status": "ok",
-        "message": "This is the API only. Open the Next.js app at http://127.0.0.1:3000",
+        "message": "MediGuide AI API. Use /api/health for readiness.",
         "health": "/api/health",
         "system": "/api/system/status",
         "docs": "/docs",
@@ -128,9 +126,8 @@ def _startup() -> None:
     try:
         init_db()
     except Exception:
-        # API remains usable for chat/RAG even if the relational store is offline.
+        # API remains usable for document upload even if the relational store is offline.
         pass
-
 
 
 # --------------------------------------------------------------------------
@@ -247,15 +244,27 @@ def _probe_vector_store() -> dict[str, str]:
     return _health_status(True, f"{count} approved passages indexed")
 
 
+def _probe_document_processing() -> dict[str, str]:
+    try:
+        import pymupdf  # noqa: F401
+
+        return _health_status(True, "PyMuPDF native-text extraction available")
+    except Exception as error:
+        return _health_status(False, f"Unavailable ({type(error).__name__})")
+
+
 @app.get("/api/health")
 def health() -> dict[str, object]:
+    """Render-safe health: API + document processing stay up without Ollama."""
     reachable, ollama_detail, installed = _probe_ollama()
     piper_ready = bool(shutil.which(str(PIPER_EXECUTABLE)) or PIPER_EXECUTABLE.exists())
     whisper_ready = importlib.util.find_spec("faster_whisper") is not None
     db_ok, db_detail = probe_database()
+    document_processing = _probe_document_processing()
 
     statuses = {
         "fastapi": _health_status(True, "API is responding"),
+        "document_processing": document_processing,
         "ollama": _health_status(reachable, ollama_detail),
         "text_model": _model_status(MODEL_NAME, installed, reachable),
         "vision_model": _model_status(VISION_MODEL_NAME, installed, reachable),
@@ -274,10 +283,9 @@ def health() -> dict[str, object]:
     }
     ready = sum(item["status"] == "ready" for item in statuses.values())
 
-    # Answers still work without speech, translation, or Postgres, so they do not
-    # make the service unhealthy on their own.
-    essential = ("fastapi", "ollama", "text_model", "embedding_model", "vector_store")
-    degraded = any(statuses[key]["status"] != "ready" for key in essential)
+    # Flagship Health Document Intelligence path does not require Ollama.
+    essential = ("fastapi", "document_processing", "database")
+    core_ok = all(statuses[key]["status"] == "ready" for key in essential)
 
     knowledge_count = 0
     try:
@@ -292,8 +300,15 @@ def health() -> dict[str, object]:
         approved_sources = len(list(KNOWLEDGE_DIR.glob("*.json")))
 
     return {
-        "status": "degraded" if degraded else ("ok" if ready == len(statuses) else "partial"),
+        "status": "ok" if core_ok else "degraded",
         "service": "mediguide-api",
+        "api": "healthy" if statuses["fastapi"]["status"] == "ready" else "unavailable",
+        "document_processing": (
+            "available" if document_processing["status"] == "ready" else "unavailable"
+        ),
+        "ollama": "available" if reachable else "unavailable",
+        "whisper": "available" if whisper_ready else "unavailable",
+        "tts": "available" if piper_ready else "unavailable",
         "ready": ready,
         "total": len(statuses),
         "statuses": statuses,
@@ -316,10 +331,9 @@ def system_status() -> dict[str, object]:
         "components": [
             {"name": "API", "key": "fastapi", **statuses["fastapi"]},
             {
-                "name": "Document service",
-                "key": "document_service",
-                "status": "ready",
-                "detail": "POST /api/documents/v2/upload available",
+                "name": "Document processing",
+                "key": "document_processing",
+                **statuses["document_processing"],
             },
             {"name": "Ollama", "key": "ollama", **statuses["ollama"]},
             {"name": "Text model", "key": "text_model", **statuses["text_model"]},
@@ -410,6 +424,14 @@ def knowledge() -> dict[str, object]:
 
 @app.post("/api/chat")
 def chat(request: ChatRequest) -> dict[str, object]:
+    try:
+        from src.rag_chatbot import stream_rag_events
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Chat is unavailable on this deployment: {type(error).__name__}",
+        ) from error
+
     answer = "MediGuide could not produce an answer."
     sources: list[dict[str, object]] = []
     status = "error"
@@ -442,6 +464,8 @@ def _sse(event: dict[str, object]) -> str:
 
 def _chat_events(request: ChatRequest) -> Iterator[str]:
     try:
+        from src.rag_chatbot import stream_rag_events
+
         for event in stream_rag_events(
             request.message,
             request.history,
@@ -491,6 +515,14 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
 @app.post("/api/transcribe")
 async def transcribe(file: UploadFile = File(...)) -> dict[str, object]:
+    try:
+        from src.transcriber import transcribe_audio
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Transcription is unavailable on this deployment: {type(error).__name__}",
+        ) from error
+
     temp_path = await _store_upload(
         file,
         max_mb=MAX_AUDIO_MB,
@@ -517,6 +549,14 @@ async def analyze_document(
     file: UploadFile = File(...),
     question: str = Form("Extract and organize only the clearly visible information."),
 ) -> dict[str, object]:
+    try:
+        from src.image_analyzer import analyze_medical_document_image
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Image analysis is unavailable on this deployment: {type(error).__name__}",
+        ) from error
+
     temp_path = await _store_upload(
         file,
         max_mb=MAX_IMAGE_MB,
@@ -538,7 +578,13 @@ async def analyze_document(
 
 @app.post("/api/translate")
 def translate(request: TranslateRequest) -> dict[str, str]:
-    from ollama import Client
+    try:
+        from ollama import Client
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Translation is unavailable on this deployment: {type(error).__name__}",
+        ) from error
 
     try:
         response = Client(host=OLLAMA_HOST).chat(
@@ -562,6 +608,14 @@ def translate(request: TranslateRequest) -> dict[str, str]:
 
 @app.post("/api/speak")
 def speak(request: SpeakRequest) -> FileResponse:
+    try:
+        from src.tts import synthesize_speech
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Speech is unavailable on this deployment: {type(error).__name__}",
+        ) from error
+
     try:
         output_path = synthesize_speech(
             request.text,

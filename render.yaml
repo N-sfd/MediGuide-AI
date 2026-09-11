@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: mediguide-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: FRONTEND_ORIGINS
+        value: https://mediguide-ai-woad.vercel.app,http://localhost:3000,http://127.0.0.1:3000
+      - key: DATABASE_URL
+        value: sqlite:///data/mediguide.db
+      - key: DOC_INTEL_TEMP_DIR
+        value: /tmp/mediguide_docs
+      - key: OLLAMA_HOST
+        value: http://127.0.0.1:11434
