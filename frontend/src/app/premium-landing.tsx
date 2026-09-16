@@ -104,8 +104,12 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
             <i>Health Document Intelligence</i>
           </h1>
           <p>
-            Transform uploaded health documents into structured, traceable information with lab extraction, longitudinal
-            timelines, source verification, and understandable explanations.
+            A health document intelligence system that converts uploaded lab reports into structured, traceable
+            longitudinal timelines and understandable educational explanations while preserving source evidence.
+          </p>
+          <p className="hero-tech-line">
+            Document AI · OCR/Vision · structured extraction · normalization · human-in-the-loop verification ·
+            longitudinal data · RAG · provenance · responsible AI
           </p>
           <p className="hero-grounded-note">
             Built around grounded AI. Extracted information stays connected to its original document evidence, while educational
@@ -113,14 +117,11 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
             treatment, or replace professional medical care.
           </p>
           <div className="hero-actions">
-            <button className="forest-button" onClick={() => handleStart("documents", "upload")}>
-              Open document workspace <ArrowUpRight size={17} />
+            <button className="forest-button" onClick={() => handleStart("documents", "sample")}>
+              Try with synthetic data <ArrowUpRight size={17} />
             </button>
-            <button
-              className="quiet-button"
-              onClick={() => document.getElementById("how-medi-guide-works")?.scrollIntoView({ behavior: "smooth" })}
-            >
-              See how it works
+            <button className="quiet-button" onClick={() => handleStart("documents", "upload")}>
+              Open document workspace
             </button>
           </div>
           <ul className="hero-trust">

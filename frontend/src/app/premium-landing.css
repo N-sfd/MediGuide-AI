@@ -99,6 +99,14 @@
   font: 400 15px / 1.6 var(--pl-sans);
 }
 
+.premium-hero-copy > p.hero-tech-line {
+  max-width: 36rem;
+  margin-top: 10px;
+  color: var(--forest);
+  font: 600 12px / 1.5 var(--pl-sans);
+  letter-spacing: 0.01em;
+}
+
 .premium-hero-copy > p.hero-grounded-note {
   max-width: 34rem;
   margin-top: 12px;

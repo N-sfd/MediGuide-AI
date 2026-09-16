@@ -1,6 +1,12 @@
 # MediGuide AI
 
-MediGuide AI is a local, multimodal health-education and appointment-preparation assistant. The current product has a FastAPI backend and a Next.js + Tailwind frontend, while preserving the existing local Ollama, Chroma, Whisper, vision, and Piper services.
+**MediGuide AI — Health Document Intelligence**
+
+A health document intelligence system that converts uploaded lab reports into structured, traceable longitudinal timelines and understandable educational explanations while preserving source evidence.
+
+Document AI · OCR/Vision · structured extraction · normalization · human-in-the-loop verification · longitudinal data · RAG · provenance · responsible AI
+
+The current product has a FastAPI backend and a Next.js frontend. Local Ollama, Chroma, Whisper, vision, and Piper remain optional supporting services — upload, native PDF extraction, verification, timeline, and provenance continue when AI providers are unavailable.
 
 ## Architecture
 

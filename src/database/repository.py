@@ -60,6 +60,11 @@ def _serialize_observation(item: LabObservation) -> dict[str, Any]:
     )
     range_status = item.range_status or (item.field.status if item.field else "unknown")
     report_date = item.report_date.isoformat() if item.report_date else None
+    source_flag = ""
+    if range_status == "flagged_high_on_report":
+        source_flag = "H"
+    elif range_status == "flagged_low_on_report":
+        source_flag = "L"
     return {
         "observation_id": item.id,
         "test_code": item.test_code,
@@ -67,15 +72,20 @@ def _serialize_observation(item: LabObservation) -> dict[str, Any]:
         "normalized_name": item.test_code,
         "value": item.value_numeric,
         "value_text": item.value_text,
+        "extracted_value": item.value_numeric,
+        "confirmed_value": item.value_numeric,
         "unit": item.unit,
         "reference_low": item.reference_low,
         "reference_high": item.reference_high,
         "reference_range": item.reference_text,
         "reference_text": item.reference_text,
+        "source_flag": source_flag,
         "collection_date": report_date,
         "report_date": report_date,
         "verification_status": item.verification_state,
         "verification_state": item.verification_state,
+        # Extraction confidence only (clearly_visible | needs_review | could_not_read).
+        # Not a medical-correctness score.
         "confidence": confidence,
         "range_status": range_status,
         "document_id": item.document_id,

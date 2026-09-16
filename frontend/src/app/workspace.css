@@ -578,11 +578,113 @@
   gap: 8px;
 }
 
-.lab-delete-note {
-  margin: 4px 0 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  opacity: 0.72;
+.sidebar-brand-block {
+  display: grid;
+  gap: 2px;
+  padding: 0 10px 16px;
+}
+
+.sidebar-brand-block strong {
+  font: 700 14px var(--sans);
+  color: var(--ink);
+}
+
+.sidebar-brand-block small {
+  font: 12px / 1.35 var(--sans);
+  color: var(--muted);
+}
+
+.sidebar-pipeline-note {
+  margin: 8px 10px 4px;
+  font: 11px / 1.4 var(--sans);
+  color: #7f8f87;
+}
+
+.nav-item.demo-nav-cta {
+  margin: 0 8px 14px;
+  border: 1px solid rgba(21, 107, 90, 0.28);
+  background: rgba(21, 107, 90, 0.08);
+  color: var(--forest);
+  font-weight: 600;
+}
+
+.nav-item.demo-nav-cta.active {
+  background: rgba(21, 107, 90, 0.16);
+}
+
+.provenance-chain-note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(21, 107, 90, 0.45);
+  background: rgba(21, 107, 90, 0.05);
+  color: #3a4843;
+  font: 12px / 1.45 var(--sans);
+}
+
+.explain-provenance-label {
+  margin: 8px 0 4px;
+}
+
+.explain-provenance-list {
+  margin-top: 16px;
+}
+
+.explain-provenance-list ul {
+  margin: 8px 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.explain-provenance-list li {
+  font: 13px / 1.45 var(--sans);
+  color: var(--ink);
+}
+
+.demo-hero-cta {
+  margin-top: 18px;
+}
+
+.demo-pipeline-caption {
+  margin: 12px 0 28px;
+  color: var(--muted);
+  font: 13px / 1.5 var(--sans);
+}
+
+.demo-guide-banner {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border-left: 3px solid #156b5a;
+  background: #edf7f1;
+  color: #105648;
+  font: 13px / 1.5 var(--sans);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.lab-timeline-summary {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font: 12px / 1.4 var(--sans);
+}
+
+.lab-result-date {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font: 14px var(--sans);
+}
+
+.confidence-note {
+  display: inline;
+  opacity: 0.7;
+  font-weight: 500;
+}
+
+.demo-inline-cta {
+  width: auto;
 }
 
 .destructive-action {
