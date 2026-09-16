@@ -1221,7 +1221,8 @@
 }
 
 .workspace-sidebar {
-  width: 248px;
+  width: 236px;
+  min-width: 236px;
 }
 
 .toast-stack {
@@ -1490,13 +1491,78 @@
 }
 
 .product-shell .brand-logo-header {
-  height: 38px;
+  height: auto;
   width: auto;
-  max-width: min(200px, 42vw);
+  max-width: none;
+}
+
+.product-shell .brand-logo-header.brand-mark-svg,
+.product-shell .app-brand .brand-mark-svg {
+  width: 28px;
+  height: 34px;
 }
 
 .sidebar-brand-block .brand-logo-sidebar {
-  height: 42px;
-  width: auto;
+  height: auto;
   max-width: 100%;
+}
+
+.sidebar-brand-block .brand-wordmark-text {
+  font: 700 15px / 1 var(--font-landing-sans, "Plus Jakarta Sans", sans-serif);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.document-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #d7e2db;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.document-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.document-table th,
+.document-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid #e8eee9;
+  vertical-align: middle;
+}
+
+.document-table th {
+  color: #87958e;
+  font: 700 10px / 1 var(--font-landing-sans, "Plus Jakarta Sans", sans-serif);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #f7faf8;
+}
+
+.document-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.document-table-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+}
+
+.document-table-name:hover strong {
+  color: var(--forest);
+}
+
+.status-dot.limited {
+  background: #d4a017;
 }

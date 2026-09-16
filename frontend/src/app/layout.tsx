@@ -16,8 +16,10 @@ const landingSerif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "MediGuide AI — Health Document Intelligence",
-  description: "A health document intelligence system that converts uploaded lab reports into structured, traceable longitudinal timelines and understandable educational explanations while preserving source evidence.",
+  title: "MediGuide — Health Document Intelligence",
+  description:
+    "Health document intelligence that converts uploaded lab reports into structured, traceable timelines and understandable educational explanations while preserving source evidence.",
+  applicationName: "MediGuide",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

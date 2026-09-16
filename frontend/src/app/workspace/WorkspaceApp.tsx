@@ -624,7 +624,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         setDocConfirmed(data.confirmed);
         setDocSelectedPage(pageNumber || 1);
         setDocExplain(null);
-        setSourceBreadcrumb(`Lab Timeline → ${data.filename || "Document"} → Page ${pageNumber || 1}`);
+        setSourceBreadcrumb(`Documents / ${data.filename || "Document"} / Page ${pageNumber || 1}`);
         setView("documents");
         if (!data.fields?.length && data.status !== "confirmed") {
           setLoadingStage("Reading document text...");
@@ -632,7 +632,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
           setDocState(processed);
           setDocFields(processed.fields || []);
           setDocSelectedPage(pageNumber || 1);
-          setSourceBreadcrumb(`Lab Timeline → ${processed.filename || "Document"} → Page ${pageNumber || 1}`);
+          setSourceBreadcrumb(`Documents / ${processed.filename || "Document"} / Page ${pageNumber || 1}`);
         }
       } else if (response.status === 404) {
         setError("This document session has expired. Upload the report again to review it in the workspace.");
@@ -1007,7 +1007,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const medEvidenceSources: Source[] = (medInfo?.sources || []).map((source) => ({ number: source.citation_number, title: source.title, publisher: source.publisher, url: source.source_url, passage: source.passage }));
   const evidenceSources = view === "documents" && docExplain ? docEvidenceSources : view === "medication" && medInfo ? medEvidenceSources : sources;
   const evidenceContext = view === "documents" && !docExplain ? "document-review" : view === "documents" && docExplain ? "explaining" : view === "medication" && medInfo ? "explaining" : sources.length ? "chat" : "idle";
-  return <main className="product-shell workspace-enter"><header className="app-header"><button className="app-brand" onClick={() => router.push('/')} aria-label="MediGuide home"><BrandLogo className="brand-logo-header" /></button><button className="quiet-button header-home" type="button" onClick={() => router.push('/')}>Home</button><span className="header-context">Health Document Intelligence</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Service status</button><button className="icon-button" title="Help" aria-label="Help" onClick={() => setHelpOpen(true)}><HelpCircle size={18} /></button><button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button className="profile-button" title="Privacy" aria-label="Privacy" onClick={() => setPrivacyOpen(true)}><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button></header>{mobileNavOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}<div className={mobileNavOpen ? "workspace-grid mobile-nav-visible" : "workspace-grid"}><Sidebar view={view} setView={handleViewChange} onNew={() => { clearSession(); setMobileNavOpen(false); }} onPrivacy={() => { setPrivacyOpen(true); setMobileNavOpen(false); }} onClose={() => setMobileNavOpen(false)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} status={answerStatus} streaming={streaming} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onOpenView={handleViewChange} onOpenDocumentPage={openDocumentPage} onUpload={() => fileInput.current?.click()} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents apiUrl={API_URL} docState={docState} docFields={docFields} docConfirmed={docConfirmed} docReviewChecked={docReviewChecked} setDocReviewChecked={setDocReviewChecked} docSelectedPage={docSelectedPage} setDocSelectedPage={setDocSelectedPage} highlightedFieldId={highlightedFieldId} setHighlightedFieldId={setHighlightedFieldId} docExplain={docExplain} docQuestion={docQuestion} setDocQuestion={setDocQuestion} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={documentDragging} recentSessions={recentSessions} onOpenSession={(documentId) => void inspectDocument(documentId, 1)} onUpload={() => fileInput.current?.click()} onLoadSample={() => void loadSampleLabReport()} demoGuide={demoGuide} onOpenLabsFromDemo={() => { setDemoGuide("Step 2 of 4 — Lab Timeline: Click a measurement (try 6.7%), then View source page."); handleViewChange("labs"); }} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} onFieldChange={updateDocField} onConfirm={() => void confirmDocument()} onExplain={() => void explainDocument()} onSuggestQuestions={suggestDocumentQuestions} onPrepareVisit={prepareVisitFromDocument} onAskAbout={askAboutDocument} onExportFields={exportDocumentFields} onOpenLabs={() => openLabTimeline(confirmedLabCodes[0])} onReset={() => setConfirmResetDocument(true)} loading={loadingStage} error={error} errorKind={docErrorKind} labsHint={addConfirmedLabsHint} confirmedLabCodes={confirmedLabCodes} onRetry={retryDocumentAction} onSystem={() => handleViewChange("system")} onRemove={() => setConfirmResetDocument(true)} processStage={processStage} processFailed={processFailed} fieldReviewState={fieldReviewState} setFieldReviewState={setFieldReviewState} previewZoom={previewZoom} setPreviewZoom={setPreviewZoom} sourceBreadcrumb={sourceBreadcrumb} onClearBreadcrumb={() => setSourceBreadcrumb("")} onBackToTimeline={() => handleViewChange("labs")} />}{view === "labs" && <LabTimeline tests={labTests} selectedCode={selectedLabCode} onSelectCode={(code) => { setSelectedLabCode(code); setSelectedLabPoint(null); }} points={labPoints} selectedPoint={selectedLabPoint} onSelectPoint={setSelectedLabPoint} onInspectDocument={(documentId, pageNumber, fieldId) => void inspectDocument(documentId, pageNumber, fieldId)} onExport={exportLabPoints} onAddToVisit={addLabsToVisit} onAskAbout={askAboutLabs} onRequestDeleteObservation={(observationId) => setConfirmDeleteObservationId(observationId)} onOpenDocuments={() => handleViewChange("documents")} />}{view === "medication" && <Medication apiUrl={API_URL} medState={medState} medFields={medFields} medConfirmed={medConfirmed} medReviewChecked={medReviewChecked} setMedReviewChecked={setMedReviewChecked} medInfo={medInfo} medQuestion={medQuestion} setMedQuestion={setMedQuestion} medTypedText={medTypedText} setMedTypedText={setMedTypedText} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={medDragging} onUpload={() => medFileInput.current?.click()} onDrop={onMedDrop} onDragEnter={() => setMedDragging(true)} onDragLeave={() => setMedDragging(false)} onFieldChange={updateMedField} onConfirm={() => void confirmMedication()} onGetInfo={() => void getMedicationInfo()} onSubmitTyped={() => void submitTypedMedication(medTypedText)} onSample={loadDemoMedication} onPrepareVisit={prepareVisitFromMedication} onReset={resetMedication} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} step={visitStep} setStep={setVisitStep} labPoints={labSummary.length ? labSummary : labPoints} medFields={medFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} library={library} onSelect={setSelectedSource} />}{view === "demo" && <DemoMode onSyntheticPipeline={() => void runSyntheticDocumentDemo()} onSampleMedication={loadDemoMedication} onSampleVoice={() => { setQuestion(DEMO_VOICE_QUESTION); handleViewChange("conversation"); }} onSampleVisit={() => { setVisitFields({ ...DEMO_VISIT }); setVisitStep(4); handleViewChange("visit"); }} />}{view === "evaluation" && <EvaluationDashboard />}{view === "system" && <SystemStatusView status={systemStatus} health={health} onRetry={() => { void checkHealth(); void loadSystemStatus(); }} />}{view !== "documents" && view !== "medication" && view !== "visit" && view !== "labs" && view !== "system" && view !== "demo" && view !== "evaluation" && <>
+  return <main className="product-shell workspace-enter"><header className="app-header"><button className="app-brand" onClick={() => router.push('/')} aria-label="MediGuide home"><BrandLogo variant="mark" className="brand-logo-header" /></button><button className="quiet-button header-home" type="button" onClick={() => router.push('/')}>Home</button><span className="header-context">Health Document Intelligence</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Service status</button><button className="icon-button" title="Help" aria-label="Help" onClick={() => setHelpOpen(true)}><HelpCircle size={18} /></button><button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button className="profile-button" title="Privacy" aria-label="Privacy" onClick={() => setPrivacyOpen(true)}><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button></header>{mobileNavOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}<div className={mobileNavOpen ? "workspace-grid mobile-nav-visible" : "workspace-grid"}><Sidebar view={view} setView={handleViewChange} onNew={() => { clearSession(); setMobileNavOpen(false); }} onPrivacy={() => { setPrivacyOpen(true); setMobileNavOpen(false); }} onClose={() => setMobileNavOpen(false)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} status={answerStatus} streaming={streaming} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onOpenView={handleViewChange} onOpenDocumentPage={openDocumentPage} onUpload={() => fileInput.current?.click()} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents apiUrl={API_URL} docState={docState} docFields={docFields} docConfirmed={docConfirmed} docReviewChecked={docReviewChecked} setDocReviewChecked={setDocReviewChecked} docSelectedPage={docSelectedPage} setDocSelectedPage={setDocSelectedPage} highlightedFieldId={highlightedFieldId} setHighlightedFieldId={setHighlightedFieldId} docExplain={docExplain} docQuestion={docQuestion} setDocQuestion={setDocQuestion} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={documentDragging} recentSessions={recentSessions} onOpenSession={(documentId) => void inspectDocument(documentId, 1)} onUpload={() => fileInput.current?.click()} onLoadSample={() => void loadSampleLabReport()} demoGuide={demoGuide} onOpenLabsFromDemo={() => { setDemoGuide("Step 2 of 4 — Lab Timeline: Click a measurement (try 6.7%), then View source page."); handleViewChange("labs"); }} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} onFieldChange={updateDocField} onConfirm={() => void confirmDocument()} onExplain={() => void explainDocument()} onSuggestQuestions={suggestDocumentQuestions} onPrepareVisit={prepareVisitFromDocument} onAskAbout={askAboutDocument} onExportFields={exportDocumentFields} onOpenLabs={() => openLabTimeline(confirmedLabCodes[0])} onReset={() => setConfirmResetDocument(true)} loading={loadingStage} error={error} errorKind={docErrorKind} labsHint={addConfirmedLabsHint} confirmedLabCodes={confirmedLabCodes} onRetry={retryDocumentAction} onSystem={() => handleViewChange("system")} onRemove={() => setConfirmResetDocument(true)} processStage={processStage} processFailed={processFailed} fieldReviewState={fieldReviewState} setFieldReviewState={setFieldReviewState} previewZoom={previewZoom} setPreviewZoom={setPreviewZoom} sourceBreadcrumb={sourceBreadcrumb} onClearBreadcrumb={() => setSourceBreadcrumb("")} onBackToTimeline={() => handleViewChange("labs")} />}{view === "labs" && <LabTimeline tests={labTests} selectedCode={selectedLabCode} onSelectCode={(code) => { setSelectedLabCode(code); setSelectedLabPoint(null); }} points={labPoints} selectedPoint={selectedLabPoint} onSelectPoint={setSelectedLabPoint} onInspectDocument={(documentId, pageNumber, fieldId) => void inspectDocument(documentId, pageNumber, fieldId)} onExport={exportLabPoints} onAddToVisit={addLabsToVisit} onAskAbout={askAboutLabs} onRequestDeleteObservation={(observationId) => setConfirmDeleteObservationId(observationId)} onOpenDocuments={() => handleViewChange("documents")} />}{view === "medication" && <Medication apiUrl={API_URL} medState={medState} medFields={medFields} medConfirmed={medConfirmed} medReviewChecked={medReviewChecked} setMedReviewChecked={setMedReviewChecked} medInfo={medInfo} medQuestion={medQuestion} setMedQuestion={setMedQuestion} medTypedText={medTypedText} setMedTypedText={setMedTypedText} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={medDragging} onUpload={() => medFileInput.current?.click()} onDrop={onMedDrop} onDragEnter={() => setMedDragging(true)} onDragLeave={() => setMedDragging(false)} onFieldChange={updateMedField} onConfirm={() => void confirmMedication()} onGetInfo={() => void getMedicationInfo()} onSubmitTyped={() => void submitTypedMedication(medTypedText)} onSample={loadDemoMedication} onPrepareVisit={prepareVisitFromMedication} onReset={resetMedication} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} step={visitStep} setStep={setVisitStep} labPoints={labSummary.length ? labSummary : labPoints} medFields={medFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} library={library} onSelect={setSelectedSource} />}{view === "demo" && <DemoMode onSyntheticPipeline={() => void runSyntheticDocumentDemo()} onSampleMedication={loadDemoMedication} onSampleVoice={() => { setQuestion(DEMO_VOICE_QUESTION); handleViewChange("conversation"); }} onSampleVisit={() => { setVisitFields({ ...DEMO_VISIT }); setVisitStep(4); handleViewChange("visit"); }} />}{view === "evaluation" && <EvaluationDashboard />}{view === "system" && <SystemStatusView status={systemStatus} health={health} onRetry={() => { void checkHealth(); void loadSystemStatus(); }} />}{view !== "documents" && view !== "medication" && view !== "visit" && view !== "labs" && view !== "system" && view !== "demo" && view !== "evaluation" && <>
           {pendingTranscript && <TranscriptReview text={pendingTranscript} setText={setPendingTranscript} reviewed={transcriptReviewed} setReviewed={setTranscriptReviewed} onConfirm={confirmTranscript} onDiscard={() => { setPendingTranscript(""); setTranscriptReviewed(false); }} />}
           <Composer question={question} setQuestion={setQuestion} onSubmit={sendQuestion} onKeyDown={handleComposerKey} onUpload={() => fileInput.current?.click()} onVoice={toggleVoice} recording={recording} loading={Boolean(loadingStage)} answerDetail={answerDetail} setAnswerDetail={setAnswerDetail} readingLevel={readingLevel} setReadingLevel={setReadingLevel} />
         </>}<input ref={fileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onFileChange} /><input ref={medFileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onMedFileChange} /></section><Evidence sources={evidenceSources} selected={selectedSource} onSelect={setSelectedSource} context={evidenceContext} onOpenSources={() => handleViewChange("sources")} /></div>
@@ -1052,7 +1052,7 @@ function Sidebar({ view, setView, onNew, onPrivacy, onClose }: { view: View; set
         <button className="icon-button" title="Close navigation" aria-label="Close navigation" onClick={onClose}><X size={18} /></button>
       </div>
       <div className="sidebar-brand-block">
-        <BrandLogo className="brand-logo-sidebar" />
+        <BrandLogo variant="wordmark" className="brand-logo-sidebar" />
       </div>
       <button className="new-conversation" onClick={onNew}><Plus size={17} /> New</button>
       <button className={view === "demo" ? "nav-item demo-nav-cta active" : "nav-item demo-nav-cta"} onClick={() => setView("demo")}>
@@ -1063,7 +1063,7 @@ function Sidebar({ view, setView, onNew, onPrivacy, onClose }: { view: View; set
         {item("documents", "Documents", FileText)}
         {item("labs", "Lab Timeline", FlaskConical)}
         {item("medication", "Medications", Pill)}
-        {item("visit", "Visit Prep", Stethoscope)}
+        {item("visit", "Visit Preparation", Stethoscope)}
         {item("conversation", "Ask MediGuide", HomeIcon)}
       </nav>
       <div className="sidebar-label knowledge-label">KNOWLEDGE</div>
@@ -1347,7 +1347,7 @@ function Documents({
         <div>
           <p className="eyebrow">DOCUMENTS</p>
           <h2>Documents</h2>
-          <p className="workflow-lead">Upload and review health documents while keeping extracted information connected to its source.</p>
+          <p className="workflow-lead">Upload, review, and trace information from your health documents.</p>
         </div>
         <div className="heading-actions">
           <button className="forest-button" type="button" onClick={onUpload}><Plus size={15} /> Upload document</button>
@@ -1356,8 +1356,8 @@ function Documents({
       </div>
       {!loading && !error && recentSessions.length === 0 && (
         <EmptyState
-          title="No documents yet."
-          body="Upload a lab report or explore MediGuide using synthetic data."
+          title="No documents yet"
+          body="Upload a lab report or explore MediGuide with synthetic data."
         >
           <button className="forest-button" type="button" onClick={onUpload}>Upload document</button>
           <button className="quiet-button" type="button" onClick={onLoadSample}>Try synthetic report</button>
@@ -1378,22 +1378,38 @@ function Documents({
       {error && <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />}
       {errorKind === "extract" && error && <div className="explain-actions"><button type="button" className="quiet-button" onClick={onRemove}>Remove document</button></div>}
       {!loading && recentSessions.length > 0 && <div className="document-list">
-        <p className="eyebrow">YOUR DOCUMENTS</p>
-        {recentSessions.map((session) => (
-          <article className="document-list-row" key={session.document_id}>
-            <button type="button" className="document-list-main" onClick={() => onOpenSession(session.document_id)}>
-              <FileText size={18} />
-              <span>
-                <strong>{session.filename}</strong>
-                <small>Lab report · {session.page_count || "—"} page{(session.page_count || 0) === 1 ? "" : "s"} · {session.field_count} extracted measurement{session.field_count === 1 ? "" : "s"}</small>
-              </span>
-            </button>
-            <div className="document-list-meta">
-              <span className={session.confirmed ? "status-chip confirmed" : "status-chip"}>{session.confirmed ? "✓ Verified" : session.status.replaceAll("_", " ")}</span>
-              <button type="button" className="quiet-button" onClick={() => onOpenSession(session.document_id)}>Open</button>
-            </div>
-          </article>
-        ))}
+        <p className="eyebrow">RECENT DOCUMENTS</p>
+        <div className="document-table-wrap">
+          <table className="document-table">
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th>Pages</th>
+                <th>Extracted</th>
+                <th>Verification</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentSessions.map((session) => (
+                <tr key={session.document_id}>
+                  <td>
+                    <button type="button" className="document-table-name" onClick={() => onOpenSession(session.document_id)}>
+                      <FileText size={15} />
+                      <strong>{session.filename}</strong>
+                    </button>
+                  </td>
+                  <td>{session.page_count || "—"}</td>
+                  <td>{session.field_count}</td>
+                  <td>{session.confirmed ? "Verified" : "Needs review"}</td>
+                  <td><span className={session.confirmed ? "status-chip confirmed" : "status-chip"}>{session.confirmed ? "Ready" : session.status.replaceAll("_", " ")}</span></td>
+                  <td><button type="button" className="quiet-button" onClick={() => onOpenSession(session.document_id)}>Open</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>}
     </div>;
   }
@@ -1437,7 +1453,7 @@ function Documents({
     {sourceBreadcrumb && (
       <div className="source-breadcrumb" aria-label="Source navigation">
         <span>{sourceBreadcrumb}</span>
-        <button type="button" className="quiet-button" onClick={() => { onClearBreadcrumb(); onBackToTimeline(); }}>Back to timeline</button>
+        <button type="button" className="quiet-button" onClick={() => { onClearBreadcrumb(); onBackToTimeline(); }}>← Back to Hemoglobin A1C</button>
       </div>
     )}
 
@@ -1962,8 +1978,8 @@ function LabTimeline({
         </div>
       ) : (
         <EmptyState
-          title="No verified measurements yet."
-          body="Measurements appear here after extracted information has been reviewed and confirmed."
+          title="No verified measurements yet"
+          body="Verified measurements will appear here after document review."
         >
           <button type="button" className="forest-button" onClick={onOpenDocuments}>Review documents</button>
         </EmptyState>
@@ -1972,15 +1988,14 @@ function LabTimeline({
     {points.length > 0 && <p className="lab-timeline-summary">{points.length} verified measurement{points.length === 1 ? "" : "s"} · {uniqueDocuments} source report{uniqueDocuments === 1 ? "" : "s"}</p>}
     {points.length > 0 && <table className="lab-table">
       <caption className="sr-only">{activeTest} verified measurements</caption>
-      <thead><tr><th>Date</th><th>Value</th><th>Change</th><th>Document</th><th>Page</th></tr></thead>
+      <thead><tr><th>Date</th><th>Result</th><th>Report flag</th><th>Source</th></tr></thead>
       <tbody>
         {points.map((point) => (
           <tr key={point.observation_id} className={selectedPoint?.observation_id === point.observation_id ? "selected" : ""} onClick={() => onSelectPoint(point)}>
             <td>{formatCollectionDate(point.collection_date || point.report_date)}</td>
             <td>{point.value_text} {point.unit}</td>
-            <td>{point.change_from_previous == null ? "—" : `${point.change_from_previous > 0 ? "+" : ""}${point.change_from_previous}`}</td>
+            <td>{point.source_flag === "H" ? "High" : point.source_flag === "L" ? "Low" : reportFlagLabel(point.range_status) || "—"}</td>
             <td>{point.document_name}</td>
-            <td>{point.source_page || point.page_number}</td>
           </tr>
         ))}
       </tbody>
@@ -2027,10 +2042,18 @@ function LabTimeline({
 }
 
 function SystemStatusView({ status, health, onRetry }: { status: SystemStatus | null; health: HealthResponse | null; onRetry: () => void }) {
-  const base = status?.components || Object.entries(health?.statuses || {}).map(([key, value]) => ({ name: friendlyHealthLabel(key, healthLabels[key] || key), key, status: value.status, detail: value.detail }));
-  const hasN8n = base.some((component) => component.key === "n8n" || component.name.toLowerCase().includes("workflow"));
-  const components = hasN8n ? base : [...base, { name: "Workflow automation", key: "n8n", status: health?.statuses?.n8n?.status || "ready", detail: "Optional automation support" }];
-  const knowledge = status?.knowledge || health?.knowledge || {};
+  const raw = status?.components || Object.entries(health?.statuses || {}).map(([key, value]) => ({ name: friendlyHealthLabel(key, healthLabels[key] || key), key, status: value.status, detail: value.detail }));
+  const byLabel = new Map<string, { name: string; key: string; status: string; detail: string }>();
+  for (const component of raw) {
+    const name = friendlyHealthLabel(component.key, component.name);
+    const existing = byLabel.get(name);
+    const rank = (s: string) => (s === "ready" ? 2 : s === "degraded" ? 1 : 0);
+    if (!existing || rank(component.status) < rank(existing.status)) {
+      byLabel.set(name, { ...component, name });
+    }
+  }
+  const preferred = ["Document processing", "Document preview", "Educational explanations", "Voice transcription", "Voice playback"];
+  const components = preferred.map((name) => byLabel.get(name) || { name, key: name, status: "ready", detail: "Service status" });
   const limited = components.some((component) => friendlyComponentStatus(component.status, component.detail) === "Limited" || friendlyComponentStatus(component.status, component.detail) === "Unavailable");
   return <div className="workflow-view system-status-view">
     <p className="eyebrow">SYSTEM</p>
@@ -2042,20 +2065,14 @@ function SystemStatusView({ status, health, onRetry }: { status: SystemStatus | 
         const label = friendlyComponentStatus(component.status, component.detail);
         return (
           <div key={component.key} className="system-card">
-            <span className={label === "Available" ? "status-dot" : "status-dot off"} aria-hidden />
+            <span className={label === "Available" ? "status-dot" : label === "Limited" ? "status-dot limited" : "status-dot off"} aria-hidden />
             <div>
-              <strong>{friendlyHealthLabel(component.key, component.name)}</strong>
+              <strong>{component.name}</strong>
               <em className="system-health-label">{label}</em>
-              <small>{component.detail}</small>
             </div>
           </div>
         );
       })}
-    </div>
-    <div className="knowledge-panel">
-      <h3>Educational sources</h3>
-      <p><strong>{knowledge.active_chunks ?? "—"}</strong> active passages</p>
-      <p><strong>{knowledge.approved_sources ?? "—"}</strong> approved sources</p>
     </div>
     <button className="forest-button" onClick={onRetry}><RefreshCw size={15} /> Refresh status</button>
   </div>;

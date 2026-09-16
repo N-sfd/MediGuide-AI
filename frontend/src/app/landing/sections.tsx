@@ -131,98 +131,104 @@ function TimelineChart({
   );
 }
 
-function ResultDetail({
-  point,
-  onViewSource,
-}: {
-  point: SyntheticLabPoint;
-  onViewSource?: () => void;
-}) {
-  const flag = flagLabel(point.flagged);
-  return (
-    <aside className="lt-detail" aria-label="Selected synthetic lab result">
-      <p className="lt-detail-value">
-        {point.value}
-        <span>{point.unit}</span>
-      </p>
-      <p className="lt-detail-date">{point.fullDate}</p>
-      {flag ? <p className="lt-flag">{flag}</p> : null}
-      <dl>
-        <div>
-          <dt>Printed reference range</dt>
-          <dd>&lt;5.7%</dd>
-        </div>
-        <div>
-          <dt>Source</dt>
-          <dd>{point.document}</dd>
-        </div>
-        <div>
-          <dt>Page</dt>
-          <dd>{point.page}</dd>
-        </div>
-      </dl>
-      {onViewSource ? (
-        <button type="button" className="quiet-button lt-source-btn" onClick={onViewSource}>
-          View source page <ArrowRight size={14} />
-        </button>
-      ) : (
-        <p className="lt-source-static">
-          View source page <ArrowRight size={14} />
-        </p>
-      )}
-    </aside>
-  );
-}
-
 export function HeroLabTimeline({ onStart }: { onStart: StartHandler }) {
   const [selectedId, setSelectedId] = useState(SYNTHETIC_A1C_POINTS[2].id);
   const selected = SYNTHETIC_A1C_POINTS.find((p) => p.id === selectedId) ?? SYNTHETIC_A1C_POINTS[2];
+  const flag = flagLabel(selected.flagged);
 
   return (
-    <MockChrome title="Lab Timeline" subtitle="3 verified reports" className="hero-timeline-frame">
-      <div className="hero-timeline-body">
+    <MockChrome title="Lab Timeline" subtitle="Verified · Synthetic" className="hero-timeline-frame">
+      <div className="hero-timeline-body hero-timeline-compact">
         <div className="lt-head">
           <div>
-            <p className="panel-kicker">Lab Timeline</p>
-            <h3>Hemoglobin A1C</h3>
+            <p className="panel-kicker">Hemoglobin A1C</p>
+            <h3>
+              {selected.value}
+              <span className="lt-unit">%</span>
+            </h3>
+            <p className="lt-sub">{selected.fullDate} · Latest verified</p>
           </div>
-          <span className="lt-badge">Synthetic data</span>
+          <span className="lt-badge">Synthetic</span>
         </div>
         <TimelineChart points={SYNTHETIC_A1C_POINTS} selectedId={selectedId} onSelect={setSelectedId} compact />
-        <ResultDetail point={selected} onViewSource={() => onStart("documents", "sample")} />
+        <div className="hero-timeline-strip">
+          {flag ? <span className="lt-flag">{flag}</span> : null}
+          <button type="button" className="quiet-button lt-source-btn" onClick={() => onStart("documents", "sample")}>
+            View source page <ArrowRight size={14} />
+          </button>
+        </div>
       </div>
     </MockChrome>
   );
 }
 
-export function LabTimelineDemo({ onStart }: { onStart: StartHandler }) {
+export function ProductWorkspacePreview({ onStart }: { onStart: StartHandler }) {
   const [selectedId, setSelectedId] = useState(SYNTHETIC_A1C_POINTS[2].id);
   const selected = SYNTHETIC_A1C_POINTS.find((p) => p.id === selectedId) ?? SYNTHETIC_A1C_POINTS[2];
+  const flag = flagLabel(selected.flagged);
 
   return (
-    <section className="flagship-timeline band-white" id="product">
+    <section className="flagship-workspace band-white tier-1" id="product">
       <div className="section-shell reveal">
         <div className="section-intro narrow">
-          <p className="eyebrow">LONGITUDINAL LAB INTELLIGENCE</p>
+          <p className="eyebrow">PRODUCT WORKSPACE</p>
           <h2>See measurements across reports — without losing the source.</h2>
           <p>
-            MediGuide organizes verified measurements from multiple reports into a longitudinal view while preserving
-            the document evidence behind every result.
+            The Lab Timeline organizes verified measurements from multiple reports while preserving the document
+            evidence behind every result.
           </p>
         </div>
-        <MockChrome title="Lab Timeline · Hemoglobin A1C" subtitle="Synthetic Jan · Apr · Aug" className="flagship-frame">
-          <div className="flagship-timeline-grid">
-            <div>
-              <div className="lt-head">
+        <MockChrome title="Workspace · Lab Timeline" subtitle="Synthetic Jan · Apr · Aug" className="flagship-frame workspace-preview-frame">
+          <div className="workspace-preview">
+            <aside className="workspace-preview-nav" aria-hidden>
+              <p className="wp-brand">MediGuide</p>
+              <p className="wp-section">Workspace</p>
+              <span>Documents</span>
+              <span className="active">Lab Timeline</span>
+              <span>Medications</span>
+              <span>Visit Preparation</span>
+              <span>Ask MediGuide</span>
+            </aside>
+            <div className="workspace-preview-main">
+              <header className="wp-main-head">
                 <div>
-                  <p className="panel-kicker">Lab Timeline</p>
-                  <h3>Hemoglobin A1C</h3>
-                  <p className="lt-sub">3 verified measurements · 3 synthetic source reports</p>
+                  <h3>Lab Timeline</h3>
+                  <p>Hemoglobin A1C · Latest verified result</p>
+                </div>
+                <div className="wp-latest">
+                  <strong>
+                    {selected.value}
+                    {selected.unit}
+                  </strong>
+                  <small>{selected.fullDate}</small>
+                </div>
+              </header>
+              <TimelineChart points={SYNTHETIC_A1C_POINTS} selectedId={selectedId} onSelect={setSelectedId} />
+              <div className="wp-stats">
+                <div>
+                  <span>Verified measurements</span>
+                  <strong>3</strong>
+                </div>
+                <div>
+                  <span>Source reports</span>
+                  <strong>3</strong>
                 </div>
               </div>
-              <TimelineChart points={SYNTHETIC_A1C_POINTS} selectedId={selectedId} onSelect={setSelectedId} />
+              <div className="wp-selected">
+                <p className="panel-kicker">Selected result</p>
+                <p className="wp-selected-value">
+                  {selected.value}
+                  {selected.unit} · {selected.fullDate}
+                </p>
+                {flag ? <p className="lt-flag">{flag}</p> : null}
+                <p className="wp-source-line">
+                  {selected.document} · Page {selected.page}
+                </p>
+                <button type="button" className="quiet-button" onClick={() => onStart("documents", "sample")}>
+                  View source page <ArrowRight size={14} />
+                </button>
+              </div>
             </div>
-            <ResultDetail point={selected} onViewSource={() => onStart("documents", "sample")} />
           </div>
         </MockChrome>
       </div>
@@ -231,29 +237,57 @@ export function LabTimelineDemo({ onStart }: { onStart: StartHandler }) {
 }
 
 export function DocumentWorkflow() {
-  const steps = [
-    { n: "01", title: "UPLOAD", detail: "Lab report · PDF or image" },
-    { n: "02", title: "EXTRACT", detail: "Lab values · Dates, units and printed ranges" },
-    { n: "03", title: "VERIFY", detail: "Review information before it is used" },
-    { n: "04", title: "TRACK", detail: "Build a timeline across verified reports" },
-    { n: "05", title: "UNDERSTAND", detail: "Plain-language educational context" },
-    { n: "06", title: "TRACE", detail: "Return to the original report and page" },
+  const row1 = [
+    { n: "01", title: "Upload", detail: "Lab report · PDF or image" },
+    { n: "02", title: "Extract", detail: "Values, dates, units, ranges" },
+    { n: "03", title: "Verify", detail: "Review before downstream use" },
+  ];
+  const row2 = [
+    { n: "06", title: "Trace", detail: "Return to report and page" },
+    { n: "05", title: "Understand", detail: "Educational context with sources" },
+    { n: "04", title: "Track", detail: "Timeline across verified reports" },
   ];
 
   return (
-    <section className="doc-intel-workflow band-mint" id="how-it-works">
+    <section className="doc-intel-workflow band-mint tier-2" id="how-it-works">
       <div className="section-shell reveal">
         <div className="section-intro narrow">
           <p className="eyebrow">FROM DOCUMENT TO TRACEABLE INFORMATION</p>
           <h2>One report. Structured information. Preserved evidence.</h2>
         </div>
-        <ol className="workflow-rail" aria-label="Document intelligence workflow">
-          {steps.map((step, index) => (
-            <li key={step.n} className="workflow-rail-step">
-              <span className="workflow-rail-num">{step.n}</span>
-              <strong>{step.title}</strong>
-              <small>{step.detail}</small>
-              {index < steps.length - 1 ? <span className="workflow-rail-arrow" aria-hidden>→</span> : null}
+        <div className="workflow-pipeline" aria-label="Document intelligence workflow">
+          <ol className="workflow-pipeline-row">
+            {row1.map((step, index) => (
+              <li key={step.n} className="workflow-pipe-step">
+                <span className="workflow-rail-num">{step.n}</span>
+                <strong>{step.title}</strong>
+                <small>{step.detail}</small>
+                {index < row1.length - 1 ? <span className="workflow-pipe-line" aria-hidden /> : null}
+              </li>
+            ))}
+          </ol>
+          <div className="workflow-pipeline-turn" aria-hidden>
+            <span />
+          </div>
+          <ol className="workflow-pipeline-row reverse">
+            {row2.map((step, index) => (
+              <li key={step.n} className="workflow-pipe-step">
+                <span className="workflow-rail-num">{step.n}</span>
+                <strong>{step.title}</strong>
+                <small>{step.detail}</small>
+                {index < row2.length - 1 ? <span className="workflow-pipe-line" aria-hidden /> : null}
+              </li>
+            ))}
+          </ol>
+        </div>
+        <ol className="workflow-stepper-mobile" aria-label="Document intelligence workflow mobile">
+          {[...row1, { n: "04", title: "Track", detail: "Timeline across verified reports" }, { n: "05", title: "Understand", detail: "Educational context with sources" }, { n: "06", title: "Trace", detail: "Return to report and page" }].map((step) => (
+            <li key={`m-${step.n}`}>
+              <span>{step.n}</span>
+              <div>
+                <strong>{step.title}</strong>
+                <small>{step.detail}</small>
+              </div>
             </li>
           ))}
         </ol>
@@ -268,26 +302,34 @@ export function DocumentWorkflow() {
 
 export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
   return (
-    <section className="verification-demo band-white" id="verification">
+    <section className="verification-demo band-white tier-1" id="verification">
       <div className="section-shell reveal">
         <div className="section-intro narrow">
           <p className="eyebrow">HUMAN VERIFICATION</p>
           <h2>AI extracts. You verify.</h2>
           <p>
-            Before extracted information enters a timeline or explanation workflow, MediGuide lets the user review what
-            was found against the original report.
+            Before extracted information enters a timeline or explanation workflow, MediGuide lets you review what was
+            found against the original report.
           </p>
         </div>
-        <MockChrome title="Document review" subtitle="Human verification" className="verify-frame">
+        <MockChrome title="Document review" subtitle="2 of 8 reviewed" className="verify-frame">
+          <div className="verify-toolbar">
+            <div className="verify-toolbar-doc">
+              <FileText size={15} />
+              <div>
+                <strong>Synthetic Lab Report</strong>
+                <small>Page 2 of 3</small>
+              </div>
+            </div>
+            <div className="verify-zoom" aria-hidden>
+              <span>−</span>
+              <em>100%</em>
+              <span>+</span>
+              <button type="button" tabIndex={-1}>Fit width</button>
+            </div>
+          </div>
           <div className="verify-grid">
             <div className="verify-report" aria-label="Synthetic report preview">
-              <div className="verify-report-head">
-                <FileText size={16} />
-                <div>
-                  <strong>Synthetic Lab Report</strong>
-                  <small>Page 2 · Aug 12, 2026</small>
-                </div>
-              </div>
               <div className="verify-report-page">
                 <p className="report-letterhead">SYNTHETIC CLINICAL LABORATORY</p>
                 <p className="report-meta">Collection date: Aug 12, 2026 · Demo specimen only</p>
@@ -320,8 +362,8 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
             </div>
             <div className="verify-fields">
               <p className="panel-kicker">Extracted lab information</p>
-              <h3>Information found in your report</h3>
-              <article className="verify-field-card">
+              <p className="review-progress">2 of 8 reviewed</p>
+              <article className="verify-field-card active">
                 <header>
                   <strong>Hemoglobin A1C</strong>
                   <span className="confidence-pill">Clearly visible</span>
@@ -334,10 +376,6 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
                     <dt>Printed reference range</dt>
                     <dd>&lt;5.7</dd>
                   </div>
-                  <div>
-                    <dt>Page</dt>
-                    <dd>2</dd>
-                  </div>
                 </dl>
                 <p className="lt-flag">Flagged high on this report</p>
                 <div className="verify-actions">
@@ -348,6 +386,21 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
                     Edit
                   </button>
                 </div>
+              </article>
+              <article className="verify-field-card next-field">
+                <header>
+                  <strong>Glucose</strong>
+                  <span className="confidence-pill needs-review">Needs review</span>
+                </header>
+                <p className="verify-value">
+                  108 <span>mg/dL</span>
+                </p>
+                <dl>
+                  <div>
+                    <dt>Printed reference range</dt>
+                    <dd>70–99</dd>
+                  </div>
+                </dl>
               </article>
               <p className="verify-note">Extraction confidence describes readability only — not medical correctness.</p>
             </div>
@@ -360,23 +413,22 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
 
 export function ProvenanceSection() {
   return (
-    <section className="provenance-section band-mint" id="provenance">
+    <section className="provenance-section band-mint tier-1" id="provenance">
       <div className="section-shell reveal">
         <div className="section-intro narrow">
           <p className="eyebrow">BUILT FOR TRACEABILITY</p>
           <h2>Grounded twice.</h2>
         </div>
-        <div className="provenance-grid">
-          <article className="provenance-card">
-            <p className="panel-kicker">DOCUMENT GROUNDING</p>
-            <h3>Lab value provenance</h3>
+        <div className="provenance-visual">
+          <article className="provenance-chain">
+            <p className="panel-kicker">Document evidence</p>
             <ol>
               <li>
-                <strong>6.7% HbA1C</strong>
-                <span>Timeline point</span>
+                <strong>Timeline measurement</strong>
+                <span>6.7%</span>
               </li>
               <li>
-                <strong>Verified observation</strong>
+                <strong>Verified result</strong>
                 <span>Human-confirmed</span>
               </li>
               <li>
@@ -388,36 +440,40 @@ export function ProvenanceSection() {
                 <span>Document page</span>
               </li>
               <li>
-                <strong>Original lab report</strong>
+                <strong>Original report</strong>
                 <span>Uploaded source</span>
               </li>
             </ol>
           </article>
-          <article className="provenance-card knowledge">
-            <p className="panel-kicker">KNOWLEDGE GROUNDING</p>
-            <h3>Explanation provenance</h3>
+          <article className="provenance-chain knowledge">
+            <p className="panel-kicker">Educational evidence</p>
             <ol>
               <li>
-                <strong>Plain-language explanation</strong>
+                <strong>Explanation</strong>
                 <span>Educational statement</span>
               </li>
               <li>
-                <strong>Supporting citation</strong>
+                <strong>Citation [1]</strong>
                 <span>In-answer reference</span>
               </li>
               <li>
-                <strong>Approved health source</strong>
-                <span>MedlinePlus · CDC · NIH</span>
+                <strong>MedlinePlus</strong>
+                <span>Approved publisher</span>
               </li>
               <li>
-                <strong>Reviewed source / version</strong>
+                <strong>Reviewed source</strong>
                 <span>Transparent origin</span>
               </li>
             </ol>
           </article>
         </div>
+        <div className="provenance-contrast" aria-label="Evidence boundary">
+          <p>What your document says</p>
+          <span>≠</span>
+          <p>General educational information</p>
+        </div>
         <p className="provenance-statement">
-          MediGuide separates what your document says from educational information about what it means.
+          MediGuide keeps these evidence chains separate and visible.
         </p>
       </div>
     </section>
@@ -426,7 +482,7 @@ export function ProvenanceSection() {
 
 export function GroundedExplanationDemo({ onStart }: { onStart: StartHandler }) {
   return (
-    <section className="grounded-explain band-white" id="explanation">
+    <section className="grounded-explain band-white tier-2" id="explanation">
       <div className="section-shell reveal">
         <div className="section-intro narrow">
           <p className="eyebrow">GROUNDED EDUCATIONAL EXPLANATION</p>
@@ -436,25 +492,21 @@ export function GroundedExplanationDemo({ onStart }: { onStart: StartHandler }) 
             sources. It does not diagnose or interpret your personal result clinically.
           </p>
         </div>
-        <MockChrome title="Grounded explanation" subtitle="Educational support" className="explain-demo-frame">
-          <div className="explain-demo-grid">
-            <article className="explain-demo-main">
-              <p className="panel-kicker">Educational context</p>
-              <h3>Hemoglobin A1C</h3>
-              <div className="explain-report-facts">
-                <div>
-                  <span>Your report lists</span>
-                  <strong>6.7%</strong>
-                </div>
-                <div>
-                  <span>Printed reference range</span>
-                  <strong>&lt;5.7%</strong>
-                </div>
-              </div>
+        <MockChrome title="Understand this result" subtitle="Educational support" className="explain-demo-frame">
+          <div className="explain-structured">
+            <p className="panel-kicker">Understand this result</p>
+            <h3>Hemoglobin A1C</h3>
+            <div className="explain-report-block">
+              <p className="panel-kicker">Your report</p>
               <p>
-                Hemoglobin A1C is a blood test that reflects average blood glucose over roughly the prior two to three
-                months. Educational materials from approved sources describe how the test is used in general health
-                education — not as a personal clinical assessment.{" "}
+                <strong>6.7%</strong> · Printed reference range: &lt;5.7%
+              </p>
+            </div>
+            <div className="explain-about-block">
+              <p className="panel-kicker">About this test</p>
+              <p>
+                Hemoglobin A1C reflects average blood glucose over roughly the prior two to three months. Approved
+                educational sources describe how the test is used in general health education.{" "}
                 <button type="button" className="citation" onClick={() => onStart("sources")}>
                   [1]
                 </button>{" "}
@@ -462,23 +514,25 @@ export function GroundedExplanationDemo({ onStart }: { onStart: StartHandler }) 
                   [2]
                 </button>
               </p>
-              <p className="explain-boundary">
-                <ShieldCheck size={14} /> General educational information, not a diagnosis or treatment recommendation.
-              </p>
-            </article>
-            <aside className="explain-demo-sources" aria-label="Approved educational sources">
-              <p className="panel-kicker">Explanation provenance</p>
-              {APPROVED_SOURCE_EXAMPLES.map((source) => (
-                <button key={source.n} type="button" className="source-mini-card" onClick={() => onStart("sources")}>
-                  <b>[{source.n}]</b>
-                  <span>
-                    <strong>{source.publisher}</strong>
-                    <em>{source.title}</em>
-                    <small>{source.reviewed}</small>
-                  </span>
-                </button>
-              ))}
-            </aside>
+            </div>
+            <div className="explain-sources-block">
+              <p className="panel-kicker">Sources</p>
+              <ul>
+                {APPROVED_SOURCE_EXAMPLES.map((source) => (
+                  <li key={source.n}>
+                    <button type="button" onClick={() => onStart("sources")}>
+                      [{source.n}] {source.publisher}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="quiet-button" onClick={() => onStart("sources")}>
+                View all sources <ArrowUpRight size={14} />
+              </button>
+            </div>
+            <p className="explain-boundary">
+              <ShieldCheck size={14} /> General educational information. Not a diagnosis or treatment recommendation.
+            </p>
           </div>
         </MockChrome>
       </div>
@@ -488,44 +542,41 @@ export function GroundedExplanationDemo({ onStart }: { onStart: StartHandler }) 
 
 export function SupportingCapabilities({ onStart }: { onStart: StartHandler }) {
   return (
-    <section className="supporting-caps band-light" id="supporting">
+    <section className="supporting-caps band-light tier-3" id="supporting">
       <div className="section-shell reveal">
         <div className="section-intro narrow">
-          <p className="eyebrow">MORE WAYS TO PREPARE AND UNDERSTAND</p>
-          <h2>Supporting capabilities around the document pipeline.</h2>
+          <p className="eyebrow">SUPPORTING CAPABILITIES</p>
+          <h2>Around the document pipeline.</h2>
         </div>
-        <div className="support-card-grid">
-          <article className="support-card">
+        <div className="support-card-grid restrained">
+          <article className="support-card quiet">
             <span className="support-icon">
-              <Pill size={18} />
+              <Pill size={16} />
             </span>
-            <p className="panel-kicker">MEDICATION LABELS</p>
-            <h3>Verify printed medication information</h3>
-            <p>Extract printed medication information, verify what was read, and access trusted educational context.</p>
-            <button type="button" className="quiet-button" onClick={() => onStart("medication")}>
-              Open medications <ArrowUpRight size={14} />
+            <h3>Medications</h3>
+            <p>Verify printed medication information and open trusted educational context.</p>
+            <button type="button" className="text-link" onClick={() => onStart("medication")}>
+              Open medications <ArrowUpRight size={13} />
             </button>
           </article>
-          <article className="support-card">
+          <article className="support-card quiet">
             <span className="support-icon">
-              <Stethoscope size={18} />
+              <Stethoscope size={16} />
             </span>
-            <p className="panel-kicker">VISIT PREPARATION</p>
-            <h3>Organize before an appointment</h3>
-            <p>Organize concerns, verified lab information, medications, documents, and questions before an appointment.</p>
-            <button type="button" className="quiet-button" onClick={() => onStart("visit")}>
-              Open visit preparation <ArrowUpRight size={14} />
+            <h3>Visit Preparation</h3>
+            <p>Organize concerns, verified labs, medications, and questions before an appointment.</p>
+            <button type="button" className="text-link" onClick={() => onStart("visit")}>
+              Open visit preparation <ArrowUpRight size={13} />
             </button>
           </article>
-          <article className="support-card">
+          <article className="support-card quiet">
             <span className="support-icon">
-              <Mic size={18} />
+              <Mic size={16} />
             </span>
-            <p className="panel-kicker">VOICE</p>
-            <h3>Speak, then confirm</h3>
-            <p>Speak naturally, review the transcript, and confirm important names, numbers, dates, and units before sending.</p>
-            <button type="button" className="quiet-button" onClick={() => onStart("conversation")}>
-              Open Ask MediGuide <ArrowUpRight size={14} />
+            <h3>Voice</h3>
+            <p>Speak naturally, review the transcript, then confirm before sending.</p>
+            <button type="button" className="text-link" onClick={() => onStart("conversation")}>
+              Open Ask MediGuide <ArrowUpRight size={13} />
             </button>
           </article>
         </div>
@@ -545,7 +596,7 @@ export function ResponsibleAISection({ onStart }: { onStart?: StartHandler }) {
   ];
 
   return (
-    <section className="responsible-ai band-white" id="responsible-ai">
+    <section className="responsible-ai band-white tier-3" id="responsible-ai">
       <div className="section-shell reveal">
         <div className="responsible-grid">
           <div>

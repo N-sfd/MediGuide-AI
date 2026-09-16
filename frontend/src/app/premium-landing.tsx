@@ -8,12 +8,13 @@ import {
   FinalCTA,
   GroundedExplanationDemo,
   HeroLabTimeline,
-  LabTimelineDemo,
+  ProductWorkspacePreview,
   ProvenanceSection,
   ResponsibleAISection,
   SupportingCapabilities,
   VerificationDemo,
 } from "./landing/sections";
+import { MEDIGUIDE_TAGLINE } from "./brand-logo";
 import "./premium-landing.css";
 
 function useReveal() {
@@ -58,7 +59,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
     <main className="premium-landing">
       <header className="landing-header">
         <button type="button" className="app-brand" onClick={() => handleStart()} aria-label="MediGuide home">
-          <BrandLogo priority className="brand-logo-header" />
+          <BrandLogo priority variant="wordmark" className="brand-logo-header" />
         </button>
 
         <nav className="landing-nav desktop-nav" aria-label="Primary">
@@ -122,12 +123,13 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
       <section className="premium-hero">
         <div className="premium-hero-copy reveal">
           <p className="eyebrow hero-trust-label">
-            <span /> MEDIGUIDE AI · HEALTH DOCUMENT INTELLIGENCE
+            <span /> HEALTH DOCUMENT INTELLIGENCE
           </p>
           <h1>Turn health documents into information you can trace.</h1>
           <p>
             Upload a lab report and MediGuide transforms it into structured, verified information — with longitudinal
-            lab timelines, understandable educational explanations, and direct links back to the original source.
+            lab timelines, educational explanations grounded in approved sources, and direct links back to the original
+            report page.
           </p>
           <div className="hero-actions">
             <button type="button" className="forest-button" onClick={() => handleStart("documents", "sample")}>
@@ -149,7 +151,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
         </div>
       </section>
 
-      <LabTimelineDemo onStart={handleStart} />
+      <ProductWorkspacePreview onStart={handleStart} />
       <DocumentWorkflow />
       <VerificationDemo onStart={handleStart} />
       <ProvenanceSection />
@@ -160,7 +162,8 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
 
       <footer className="landing-footer">
         <div className="footer-brand">
-          <BrandLogo className="brand-logo-footer" />
+          <BrandLogo variant="full" className="brand-logo-footer" />
+          <p className="footer-tagline">{MEDIGUIDE_TAGLINE}</p>
         </div>
         <nav aria-label="Footer">
           <button type="button" className="footer-link-btn" onClick={() => scrollTo("product")}>
@@ -181,7 +184,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
         </nav>
         <p className="footer-disclaimer">
           <ShieldCheck size={14} /> Educational prototype. Not a diagnosis, prescription, or substitute for professional
-          medical care. © 2026 MediGuide AI
+          medical care. © 2026 MediGuide
         </p>
       </footer>
     </main>

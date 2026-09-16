@@ -169,17 +169,19 @@ export function mapStatusToProcessStage(status: string, loading: string): Proces
 }
 
 export const FRIENDLY_HEALTH_LABELS: Record<string, string> = {
-  fastapi: "MediGuide API",
+  fastapi: "Document processing",
   ollama: "Educational explanations",
   text_model: "Educational explanations",
-  vision_model: "Document reading",
-  embedding_model: "Educational sources",
-  vector_store: "Educational sources",
-  database: "Document storage",
+  vision_model: "Document preview",
+  embedding_model: "Educational explanations",
+  vector_store: "Educational explanations",
+  database: "Document processing",
   whisper: "Voice transcription",
   piper: "Voice playback",
   translation_model: "Translation",
-  n8n: "Workflow automation",
+  n8n: "Document processing",
+  document_processing: "Document processing",
+  document_preview: "Document preview",
 };
 
 export function friendlyHealthLabel(key: string, fallback?: string) {
