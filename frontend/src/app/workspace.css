@@ -1484,3 +1484,19 @@
     align-items: stretch;
   }
 }
+
+.product-shell .app-brand {
+  padding: 0;
+}
+
+.product-shell .brand-logo-header {
+  height: 38px;
+  width: auto;
+  max-width: min(200px, 42vw);
+}
+
+.sidebar-brand-block .brand-logo-sidebar {
+  height: 42px;
+  width: auto;
+  max-width: 100%;
+}

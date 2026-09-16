@@ -43,6 +43,36 @@
 
 .premium-landing .landing-header .app-brand {
   flex-shrink: 0;
+  padding: 0;
+}
+
+.brand-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.brand-logo-header {
+  height: 40px;
+  width: auto;
+  max-width: min(220px, 46vw);
+}
+
+.brand-logo-sidebar {
+  height: 44px;
+  width: auto;
+  max-width: 100%;
+}
+
+.brand-logo-footer {
+  height: 48px;
+  width: auto;
+  max-width: 240px;
+  /* Soft invert-friendly treatment on dark footer: keep natural colors on white plate */
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 8px;
 }
 
 .landing-nav {

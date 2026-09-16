@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, ShieldCheck, X } from "lucide-react";
+import { BrandLogo } from "./brand-logo";
 import {
   DocumentWorkflow,
   FinalCTA,
@@ -56,13 +57,8 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
   return (
     <main className="premium-landing">
       <header className="landing-header">
-        <button type="button" className="app-brand" onClick={() => handleStart()}>
-          <span className="brand-mark">
-            <ShieldCheck size={15} />
-          </span>
-          <span>
-            MediGuide <em>AI</em>
-          </span>
+        <button type="button" className="app-brand" onClick={() => handleStart()} aria-label="MediGuide home">
+          <BrandLogo priority className="brand-logo-header" />
         </button>
 
         <nav className="landing-nav desktop-nav" aria-label="Primary">
@@ -164,8 +160,7 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
 
       <footer className="landing-footer">
         <div className="footer-brand">
-          <strong>MediGuide AI</strong>
-          <span>Health Document Intelligence</span>
+          <BrandLogo className="brand-logo-footer" />
         </div>
         <nav aria-label="Footer">
           <button type="button" className="footer-link-btn" onClick={() => scrollTo("product")}>
