@@ -1,10 +1,21 @@
 "use client";
 
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
-import { Activity, ArrowUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clipboard, FileText, FlaskConical, HelpCircle, Home as HomeIcon, Image as ImageIcon, Lock, Menu, Mic, Paperclip, Pill, PlayCircle, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, Stethoscope, Trash2, TrendingUp, UserRound, Volume2, X } from "lucide-react";
+import { Activity, ArrowUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clipboard, FileText, FlaskConical, HelpCircle, Home as HomeIcon, Image as ImageIcon, Lock, Menu, Mic, Paperclip, Pill, PlayCircle, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, Stethoscope, Trash2, TrendingUp, UserRound, Volume2, X, ZoomIn } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DEMO_CBC_FIELDS, DEMO_MEDICATION, DEMO_VOICE_QUESTION, DEMO_VISIT, EVALUATION_METRICS } from "../../lib/demo-data";
+import {
+  ConfirmDialog,
+  EmptyState,
+  ProcessingChecklist,
+  ToastStack,
+  friendlyComponentStatus,
+  friendlyHealthLabel,
+  mapStatusToProcessStage,
+  type ProcessStageId,
+  type ToastItem,
+} from "./polish-ui";
 import "../workspace.css";
 
 type Source = { number: number; title: string; publisher: string; published?: string; reviewed?: string; url?: string; passage?: string };
@@ -98,7 +109,18 @@ const topicSuggestions = [
   ["Medication labels", "What should I understand about medication labels?"],
   ["Prepare for a visit", "How should I prepare for a healthcare appointment?"],
 ] as const;
-const healthLabels: Record<string, string> = { fastapi: "API", ollama: "Ollama", text_model: "Text model", vision_model: "Vision model", embedding_model: "Embedding model", vector_store: "ChromaDB", database: "Database", whisper: "Whisper", piper: "Piper", translation_model: "Translation model" };
+const healthLabels: Record<string, string> = {
+  fastapi: "MediGuide API",
+  ollama: "Educational explanations",
+  text_model: "Educational explanations",
+  vision_model: "Document reading",
+  embedding_model: "Educational sources",
+  vector_store: "Educational sources",
+  database: "Document storage",
+  whisper: "Voice transcription",
+  piper: "Voice playback",
+  translation_model: "Translation",
+};
 
 function suggestClinicianQuestions(fields: DocField[], medFields: MedField[], labPoints: LabPoint[]) {
   const questions: string[] = [];
@@ -191,6 +213,14 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const [docErrorKind, setDocErrorKind] = useState<"upload" | "extract" | "confirm" | "explain" | "">("");
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
   const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
+  const [processStage, setProcessStage] = useState<ProcessStageId | null>(null);
+  const [processFailed, setProcessFailed] = useState(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [confirmDeleteObservationId, setConfirmDeleteObservationId] = useState<string | null>(null);
+  const [confirmResetDocument, setConfirmResetDocument] = useState(false);
+  const [sourceBreadcrumb, setSourceBreadcrumb] = useState("");
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [fieldReviewState, setFieldReviewState] = useState<Record<string, "unverified" | "confirmed" | "corrected" | "rejected">>({});
   const [labTests, setLabTests] = useState<LabTest[]>([]);
   const [selectedLabCode, setSelectedLabCode] = useState("hemoglobin_a1c");
   const [labPoints, setLabPoints] = useState<LabPoint[]>([]);
@@ -205,6 +235,14 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const medFileInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
+
+  function pushToast(message: string, tone: ToastItem["tone"] = "info") {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts((current) => [...current.slice(-3), { id, message, tone }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((item) => item.id !== id));
+    }, tone === "error" ? 8000 : 4200);
+  }
 
   useEffect(() => { void checkHealth(); void loadLibrary(); }, []);
   useEffect(() => {
@@ -383,14 +421,13 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
 
     const statusLabels: Record<string, string> = {
       uploaded: "Preparing page previews...",
-      queued: "Queued for extraction...",
-      rendering: "Rendering page previews...",
-      extracting: "Reading visible information...",
-      review_required: "Review required",
-      failed: "Extraction failed",
+      queued: "Queued for document processing...",
+      rendering: "Preparing page previews...",
+      extracting: "Reading document text...",
+      review_required: "Preparing review...",
+      failed: "Document processing failed",
     };
 
-    let pollTimer: number | undefined;
     const pollStatus = window.setInterval(async () => {
       try {
         const statusResponse = await fetch(`${API_URL}/api/documents/v2/${documentId}/status`);
@@ -398,11 +435,12 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         const status = (await statusResponse.json()) as { status?: string; filename?: string };
         const label = statusLabels[status.status || ""] || "Processing document...";
         setLoadingStage(label);
+        setProcessStage(mapStatusToProcessStage(status.status || "", label));
       } catch {
         /* polling is best-effort */
       }
     }, 1200);
-    pollTimer = pollStatus;
+    const pollTimer = pollStatus;
 
     try {
       const response = await fetch(`${API_URL}/api/documents/v2/${documentId}/process`, {
@@ -470,20 +508,20 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     setDocQuestion("");
     setAddConfirmedLabsHint("");
     setPendingDocId(null);
-
-    console.log("Selected file:", {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    });
+    setProcessFailed(false);
+    setProcessStage("upload");
+    setFieldReviewState({});
+    setPreviewZoom(1);
+    setSourceBreadcrumb("");
 
     let uploadedId: string | null = null;
 
     try {
       setLoadingStage("Uploading document...");
+      setProcessStage("upload");
       const uploaded = await postDocumentUpload(file);
       uploadedId = uploaded.document_id;
-      console.log("Upload result:", uploaded);
+      pushToast("Document uploaded", "success");
 
       setPendingDocId(uploaded.document_id);
       setDocState({
@@ -495,30 +533,41 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         fields: [],
         confirmed: false,
       });
-      setLoadingStage(`✓ ${uploaded.filename} uploaded · Preparing page previews...`);
+      setLoadingStage("File validated · Preparing page previews...");
+      setProcessStage("validate");
 
       const processed = await processDocument(uploaded.document_id);
-      console.log("Process result:", processed);
-
-      setLoadingStage("Reading visible information...");
+      setLoadingStage("Reading document text...");
+      setProcessStage("read");
       setDocState(processed);
       setDocFields(processed.fields || []);
       setDocSelectedPage(1);
-      setLoadingStage("✓ Extraction complete · Review required");
-      window.setTimeout(() => setLoadingStage(""), 1200);
+      setProcessStage("extract");
+      const initialReview: Record<string, "unverified" | "confirmed" | "corrected" | "rejected"> = {};
+      (processed.fields || []).forEach((field) => {
+        initialReview[field.field_id] = "unverified";
+      });
+      setFieldReviewState(initialReview);
+      setPendingDocId(null);
+      setProcessStage("review");
+      setLoadingStage("");
+      setProcessStage(null);
+      setProcessFailed(false);
+      pushToast("Extraction complete — review required", "success");
     } catch (err) {
-      console.error("Upload failed:", err);
+      setProcessFailed(true);
       setDocErrorKind(uploadedId ? "extract" : "upload");
       if (!API_URL) {
         setError(API_CONFIGURATION_MESSAGE);
       } else if (err instanceof Error && err.message && err.message !== "Failed to fetch") {
         setError(err.message);
       } else if (uploadedId) {
-        setError("Your file was received successfully, but MediGuide could not read its contents.");
+        setError("Your original file is still available. MediGuide could not finish reading its contents.");
       } else {
         setError("MediGuide could not upload this file. The document has not been stored.");
       }
       setLoadingStage("");
+      if (!uploadedId) setProcessStage(null);
     }
   }
 
@@ -527,21 +576,29 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     const documentId = pendingDocId || docState!.document_id;
     setError("");
     setDocErrorKind("");
-    setLoadingStage("Reading visible information...");
+    setProcessFailed(false);
+    setLoadingStage("Reading document text...");
+    setProcessStage("read");
     try {
       const processed = await processDocument(documentId);
       setDocState(processed);
       setDocFields(processed.fields || []);
       setDocSelectedPage(1);
-      setLoadingStage("✓ Extraction complete · Review required");
-      window.setTimeout(() => setLoadingStage(""), 1200);
+      const initialReview: Record<string, "unverified" | "confirmed" | "corrected" | "rejected"> = {};
+      (processed.fields || []).forEach((field) => {
+        initialReview[field.field_id] = "unverified";
+      });
+      setFieldReviewState(initialReview);
+      setLoadingStage("");
+      setProcessStage(null);
+      pushToast("Extraction complete — review required", "success");
     } catch (err) {
-      console.error("Extraction retry failed:", err);
+      setProcessFailed(true);
       setDocErrorKind("extract");
       setError(
         err instanceof Error && err.message !== "Failed to fetch"
           ? err.message
-          : "Your file was received successfully, but MediGuide could not read its contents.",
+          : "Your original file is still available. MediGuide could not finish reading its contents.",
       );
       setLoadingStage("");
     }
@@ -551,11 +608,12 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     setError("");
     setDocErrorKind("");
     setHighlightedFieldId(fieldId || null);
+    setPreviewZoom(1);
     if (demoGuide) {
       setDemoGuide("Step 3 of 4 — Source-page drill-down: The highlighted field is the lab value provenance chain. Optional next: Get AI explanation for approved-source citations.");
     }
     try {
-      setLoadingStage("Opening verified document...");
+      setLoadingStage("Opening source document...");
       const response = await fetch(`${API_URL}/api/documents/v2/${documentId}`);
       if (response.ok) {
         const data = (await response.json()) as DocState;
@@ -565,15 +623,15 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         setDocConfirmed(data.confirmed);
         setDocSelectedPage(pageNumber || 1);
         setDocExplain(null);
+        setSourceBreadcrumb(`Lab Timeline → ${data.filename || "Document"} → Page ${pageNumber || 1}`);
         setView("documents");
         if (!data.fields?.length && data.status !== "confirmed") {
-          setLoadingStage("Reading visible information...");
+          setLoadingStage("Reading document text...");
           const processed = await processDocument(documentId);
           setDocState(processed);
           setDocFields(processed.fields || []);
           setDocSelectedPage(pageNumber || 1);
-          setLoadingStage("✓ Extraction complete · Review required");
-          window.setTimeout(() => setLoadingStage(""), 1200);
+          setSourceBreadcrumb(`Lab Timeline → ${processed.filename || "Document"} → Page ${pageNumber || 1}`);
         }
       } else if (response.status === 404) {
         setError("This document session has expired. Upload the report again to review it in the workspace.");
@@ -682,11 +740,19 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
       const response = await fetch(`${API_URL}/api/labs/observations/${observationId}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Could not delete this observation.");
       setSelectedLabPoint(null);
+      setConfirmDeleteObservationId(null);
       await loadLabs(selectedLabCode);
       await loadLabSummary();
+      pushToast("Result removed from timeline", "success");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete this observation.");
+      pushToast("Could not delete this result", "error");
     }
+  }
+
+  function updateDocField(fieldId: string, patch: Partial<Pick<DocField, "value" | "unit" | "reference_range">>) {
+    setDocFields((current) => current.map((field) => (field.field_id === fieldId ? { ...field, ...patch, user_edited: true } : field)));
+    setFieldReviewState((current) => ({ ...current, [fieldId]: "corrected" }));
   }
 
   function openLabTimeline(testCode?: string) {
@@ -695,10 +761,6 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     handleViewChange("labs");
     void loadLabs(testCode || selectedLabCode);
     void loadLabSummary();
-  }
-
-  function updateDocField(fieldId: string, patch: Partial<Pick<DocField, "value" | "unit" | "reference_range">>) {
-    setDocFields((current) => current.map((field) => (field.field_id === fieldId ? { ...field, ...patch, user_edited: true } : field)));
   }
 
   async function confirmDocument() {
@@ -713,6 +775,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Could not confirm this document.");
       setDocFields(data.fields || docFields); setDocConfirmed(true);
+      pushToast("Results confirmed", "success");
       const labCount = data.persistence?.lab_observation_count ?? 0;
       const trackedCodes = (data.persistence?.tracked_test_codes as string[] | undefined) || [];
       setConfirmedLabCodes(trackedCodes);
@@ -943,10 +1006,30 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const medEvidenceSources: Source[] = (medInfo?.sources || []).map((source) => ({ number: source.citation_number, title: source.title, publisher: source.publisher, url: source.source_url, passage: source.passage }));
   const evidenceSources = view === "documents" && docExplain ? docEvidenceSources : view === "medication" && medInfo ? medEvidenceSources : sources;
   const evidenceContext = view === "documents" && !docExplain ? "document-review" : view === "documents" && docExplain ? "explaining" : view === "medication" && medInfo ? "explaining" : sources.length ? "chat" : "idle";
-  return <main className="product-shell workspace-enter"><header className="app-header"><button className="app-brand" onClick={() => router.push('/')}><span className="brand-mark"><ShieldCheck size={15} /></span><span>MediGuide <em>AI</em></span></button><button className="quiet-button header-home" type="button" onClick={() => router.push('/')}>Home</button><span className="header-context">Health Document Intelligence</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Private local</button><button className="icon-button" title="Help" aria-label="Help" onClick={() => setHelpOpen(true)}><HelpCircle size={18} /></button><button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button className="profile-button" title="Privacy" aria-label="Privacy" onClick={() => setPrivacyOpen(true)}><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button></header>{mobileNavOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}<div className={mobileNavOpen ? "workspace-grid mobile-nav-visible" : "workspace-grid"}><Sidebar view={view} setView={handleViewChange} onNew={() => { clearSession(); setMobileNavOpen(false); }} onPrivacy={() => { setPrivacyOpen(true); setMobileNavOpen(false); }} onClose={() => setMobileNavOpen(false)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} status={answerStatus} streaming={streaming} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onOpenView={handleViewChange} onOpenDocumentPage={openDocumentPage} onUpload={() => fileInput.current?.click()} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents apiUrl={API_URL} docState={docState} docFields={docFields} docConfirmed={docConfirmed} docReviewChecked={docReviewChecked} setDocReviewChecked={setDocReviewChecked} docSelectedPage={docSelectedPage} setDocSelectedPage={setDocSelectedPage} highlightedFieldId={highlightedFieldId} setHighlightedFieldId={setHighlightedFieldId} docExplain={docExplain} docQuestion={docQuestion} setDocQuestion={setDocQuestion} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={documentDragging} recentSessions={recentSessions} onOpenSession={(documentId) => void inspectDocument(documentId, 1)} onUpload={() => fileInput.current?.click()} onLoadSample={() => void loadSampleLabReport()} demoGuide={demoGuide} onOpenLabsFromDemo={() => { setDemoGuide("Step 2 of 4 — Lab Timeline: Click a measurement (try 6.7%), then View source page."); handleViewChange("labs"); }} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} onFieldChange={updateDocField} onConfirm={() => void confirmDocument()} onExplain={() => void explainDocument()} onSuggestQuestions={suggestDocumentQuestions} onPrepareVisit={prepareVisitFromDocument} onAskAbout={askAboutDocument} onExportFields={exportDocumentFields} onOpenLabs={() => openLabTimeline(confirmedLabCodes[0])} onReset={resetDocument} loading={loadingStage} error={error} errorKind={docErrorKind} labsHint={addConfirmedLabsHint} confirmedLabCodes={confirmedLabCodes} onRetry={retryDocumentAction} onSystem={() => handleViewChange("system")} onRemove={resetDocument} />}{view === "labs" && <LabTimeline tests={labTests} selectedCode={selectedLabCode} onSelectCode={(code) => { setSelectedLabCode(code); setSelectedLabPoint(null); }} points={labPoints} selectedPoint={selectedLabPoint} onSelectPoint={setSelectedLabPoint} onInspectDocument={(documentId, pageNumber, fieldId) => void inspectDocument(documentId, pageNumber, fieldId)} onExport={exportLabPoints} onAddToVisit={addLabsToVisit} onAskAbout={askAboutLabs} onDeleteObservation={(observationId) => void deleteLabObservation(observationId)} />}{view === "medication" && <Medication apiUrl={API_URL} medState={medState} medFields={medFields} medConfirmed={medConfirmed} medReviewChecked={medReviewChecked} setMedReviewChecked={setMedReviewChecked} medInfo={medInfo} medQuestion={medQuestion} setMedQuestion={setMedQuestion} medTypedText={medTypedText} setMedTypedText={setMedTypedText} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={medDragging} onUpload={() => medFileInput.current?.click()} onDrop={onMedDrop} onDragEnter={() => setMedDragging(true)} onDragLeave={() => setMedDragging(false)} onFieldChange={updateMedField} onConfirm={() => void confirmMedication()} onGetInfo={() => void getMedicationInfo()} onSubmitTyped={() => void submitTypedMedication(medTypedText)} onSample={loadDemoMedication} onPrepareVisit={prepareVisitFromMedication} onReset={resetMedication} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} step={visitStep} setStep={setVisitStep} labPoints={labSummary.length ? labSummary : labPoints} medFields={medFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} library={library} onSelect={setSelectedSource} />}{view === "demo" && <DemoMode onSyntheticPipeline={() => void runSyntheticDocumentDemo()} onSampleMedication={loadDemoMedication} onSampleVoice={() => { setQuestion(DEMO_VOICE_QUESTION); handleViewChange("conversation"); }} onSampleVisit={() => { setVisitFields({ ...DEMO_VISIT }); setVisitStep(4); handleViewChange("visit"); }} />}{view === "evaluation" && <EvaluationDashboard />}{view === "system" && <SystemStatusView status={systemStatus} health={health} onRetry={() => { void checkHealth(); void loadSystemStatus(); }} />}{view !== "documents" && view !== "medication" && view !== "visit" && view !== "labs" && view !== "system" && view !== "demo" && view !== "evaluation" && <>
+  return <main className="product-shell workspace-enter"><header className="app-header"><button className="app-brand" onClick={() => router.push('/')}><span className="brand-mark"><ShieldCheck size={15} /></span><span>MediGuide <em>AI</em></span></button><button className="quiet-button header-home" type="button" onClick={() => router.push('/')}>Home</button><span className="header-context">Health Document Intelligence</span><div className="header-actions"><select className="language-select" value={language} onChange={(event) => void translateAnswer(event.target.value)} aria-label="Response language"><option>English</option><option>Spanish</option><option>French</option></select><button className="local-pill" onClick={() => setHealthOpen(true)}><span /> Service status</button><button className="icon-button" title="Help" aria-label="Help" onClick={() => setHelpOpen(true)}><HelpCircle size={18} /></button><button className="icon-button" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button className="profile-button" title="Privacy" aria-label="Privacy" onClick={() => setPrivacyOpen(true)}><UserRound size={17} /></button></div><button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button></header>{mobileNavOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}<div className={mobileNavOpen ? "workspace-grid mobile-nav-visible" : "workspace-grid"}><Sidebar view={view} setView={handleViewChange} onNew={() => { clearSession(); setMobileNavOpen(false); }} onPrivacy={() => { setPrivacyOpen(true); setMobileNavOpen(false); }} onClose={() => setMobileNavOpen(false)} /><section className="main-panel">{view === "conversation" && <Conversation answer={answer} status={answerStatus} streaming={streaming} sources={sources} question={question} messages={messages} loading={loadingStage} error={error} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onRetry={retry} onPreset={(prompt) => setQuestion(prompt)} onOpenView={handleViewChange} onOpenDocumentPage={openDocumentPage} onUpload={() => fileInput.current?.click()} onAction={(action) => { if (action === "copy") copyAnswer(); if (action === "listen") readAnswer(); if (action === "simple") void sendQuestion(undefined, `Explain this answer simply:\n\n${answer}`); if (action === "questions") { setQuestion("What questions should I ask my clinician about this?"); } }} />}{view === "documents" && <Documents apiUrl={API_URL} docState={docState} docFields={docFields} docConfirmed={docConfirmed} docReviewChecked={docReviewChecked} setDocReviewChecked={setDocReviewChecked} docSelectedPage={docSelectedPage} setDocSelectedPage={setDocSelectedPage} highlightedFieldId={highlightedFieldId} setHighlightedFieldId={setHighlightedFieldId} docExplain={docExplain} docQuestion={docQuestion} setDocQuestion={setDocQuestion} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={documentDragging} recentSessions={recentSessions} onOpenSession={(documentId) => void inspectDocument(documentId, 1)} onUpload={() => fileInput.current?.click()} onLoadSample={() => void loadSampleLabReport()} demoGuide={demoGuide} onOpenLabsFromDemo={() => { setDemoGuide("Step 2 of 4 — Lab Timeline: Click a measurement (try 6.7%), then View source page."); handleViewChange("labs"); }} onDrop={onDrop} onDragEnter={() => setDocumentDragging(true)} onDragLeave={() => setDocumentDragging(false)} onFieldChange={updateDocField} onConfirm={() => void confirmDocument()} onExplain={() => void explainDocument()} onSuggestQuestions={suggestDocumentQuestions} onPrepareVisit={prepareVisitFromDocument} onAskAbout={askAboutDocument} onExportFields={exportDocumentFields} onOpenLabs={() => openLabTimeline(confirmedLabCodes[0])} onReset={() => setConfirmResetDocument(true)} loading={loadingStage} error={error} errorKind={docErrorKind} labsHint={addConfirmedLabsHint} confirmedLabCodes={confirmedLabCodes} onRetry={retryDocumentAction} onSystem={() => handleViewChange("system")} onRemove={() => setConfirmResetDocument(true)} processStage={processStage} processFailed={processFailed} fieldReviewState={fieldReviewState} setFieldReviewState={setFieldReviewState} previewZoom={previewZoom} setPreviewZoom={setPreviewZoom} sourceBreadcrumb={sourceBreadcrumb} onClearBreadcrumb={() => setSourceBreadcrumb("")} onBackToTimeline={() => handleViewChange("labs")} />}{view === "labs" && <LabTimeline tests={labTests} selectedCode={selectedLabCode} onSelectCode={(code) => { setSelectedLabCode(code); setSelectedLabPoint(null); }} points={labPoints} selectedPoint={selectedLabPoint} onSelectPoint={setSelectedLabPoint} onInspectDocument={(documentId, pageNumber, fieldId) => void inspectDocument(documentId, pageNumber, fieldId)} onExport={exportLabPoints} onAddToVisit={addLabsToVisit} onAskAbout={askAboutLabs} onRequestDeleteObservation={(observationId) => setConfirmDeleteObservationId(observationId)} onOpenDocuments={() => handleViewChange("documents")} />}{view === "medication" && <Medication apiUrl={API_URL} medState={medState} medFields={medFields} medConfirmed={medConfirmed} medReviewChecked={medReviewChecked} setMedReviewChecked={setMedReviewChecked} medInfo={medInfo} medQuestion={medQuestion} setMedQuestion={setMedQuestion} medTypedText={medTypedText} setMedTypedText={setMedTypedText} selectedSource={selectedSource} setSelectedSource={setSelectedSource} dragging={medDragging} onUpload={() => medFileInput.current?.click()} onDrop={onMedDrop} onDragEnter={() => setMedDragging(true)} onDragLeave={() => setMedDragging(false)} onFieldChange={updateMedField} onConfirm={() => void confirmMedication()} onGetInfo={() => void getMedicationInfo()} onSubmitTyped={() => void submitTypedMedication(medTypedText)} onSample={loadDemoMedication} onPrepareVisit={prepareVisitFromMedication} onReset={resetMedication} loading={loadingStage} error={error} />}{view === "visit" && <Visit fields={visitFields} setFields={setVisitFields} step={visitStep} setStep={setVisitStep} labPoints={labSummary.length ? labSummary : labPoints} medFields={medFields} onGenerate={generateVisitSummary} />}{view === "sources" && <Sources sources={sources} library={library} onSelect={setSelectedSource} />}{view === "demo" && <DemoMode onSyntheticPipeline={() => void runSyntheticDocumentDemo()} onSampleMedication={loadDemoMedication} onSampleVoice={() => { setQuestion(DEMO_VOICE_QUESTION); handleViewChange("conversation"); }} onSampleVisit={() => { setVisitFields({ ...DEMO_VISIT }); setVisitStep(4); handleViewChange("visit"); }} />}{view === "evaluation" && <EvaluationDashboard />}{view === "system" && <SystemStatusView status={systemStatus} health={health} onRetry={() => { void checkHealth(); void loadSystemStatus(); }} />}{view !== "documents" && view !== "medication" && view !== "visit" && view !== "labs" && view !== "system" && view !== "demo" && view !== "evaluation" && <>
           {pendingTranscript && <TranscriptReview text={pendingTranscript} setText={setPendingTranscript} reviewed={transcriptReviewed} setReviewed={setTranscriptReviewed} onConfirm={confirmTranscript} onDiscard={() => { setPendingTranscript(""); setTranscriptReviewed(false); }} />}
           <Composer question={question} setQuestion={setQuestion} onSubmit={sendQuestion} onKeyDown={handleComposerKey} onUpload={() => fileInput.current?.click()} onVoice={toggleVoice} recording={recording} loading={Boolean(loadingStage)} answerDetail={answerDetail} setAnswerDetail={setAnswerDetail} readingLevel={readingLevel} setReadingLevel={setReadingLevel} />
-        </>}<input ref={fileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onFileChange} /><input ref={medFileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onMedFileChange} /></section><Evidence sources={evidenceSources} selected={selectedSource} onSelect={setSelectedSource} context={evidenceContext} onOpenSources={() => handleViewChange("sources")} /></div>{privacyOpen && <Privacy onClose={() => setPrivacyOpen(false)} onClear={clearSession} />}{helpOpen && <HelpDrawer onClose={() => setHelpOpen(false)} onOpenView={(next) => { setHelpOpen(false); handleViewChange(next); }} />}{settingsOpen && <SettingsDrawer answerDetail={answerDetail} setAnswerDetail={setAnswerDetail} readingLevel={readingLevel} setReadingLevel={setReadingLevel} language={language} setLanguage={setLanguage} onClose={() => setSettingsOpen(false)} />}{healthOpen && <Health health={health} onClose={() => setHealthOpen(false)} onRetry={checkHealth} />}</main>;
+        </>}<input ref={fileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onFileChange} /><input ref={medFileInput} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" hidden onChange={onMedFileChange} /></section><Evidence sources={evidenceSources} selected={selectedSource} onSelect={setSelectedSource} context={evidenceContext} onOpenSources={() => handleViewChange("sources")} /></div>
+      <ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((item) => item.id !== id))} />
+      <ConfirmDialog
+        open={Boolean(confirmDeleteObservationId)}
+        title="Delete this result?"
+        body="This removes the timeline observation only. The source document stays available until you clear it separately."
+        confirmLabel="Delete result"
+        destructive
+        onCancel={() => setConfirmDeleteObservationId(null)}
+        onConfirm={() => { if (confirmDeleteObservationId) void deleteLabObservation(confirmDeleteObservationId); }}
+      />
+      <ConfirmDialog
+        open={confirmResetDocument}
+        title="Clear this document?"
+        body="This will remove the uploaded document and associated extracted information from the current MediGuide session."
+        confirmLabel="Delete document"
+        destructive
+        onCancel={() => setConfirmResetDocument(false)}
+        onConfirm={() => { setConfirmResetDocument(false); resetDocument(); pushToast("Document cleared from session", "info"); }}
+      />
+      {privacyOpen && <Privacy onClose={() => setPrivacyOpen(false)} onClear={clearSession} />}{helpOpen && <HelpDrawer onClose={() => setHelpOpen(false)} onOpenView={(next) => { setHelpOpen(false); handleViewChange(next); }} />}{settingsOpen && <SettingsDrawer answerDetail={answerDetail} setAnswerDetail={setAnswerDetail} readingLevel={readingLevel} setReadingLevel={setReadingLevel} language={language} setLanguage={setLanguage} onClose={() => setSettingsOpen(false)} />}{healthOpen && <Health health={health} onClose={() => setHealthOpen(false)} onRetry={checkHealth} />}</main>;
 }
 
 /* Legacy landing markup retained for reference; PremiumLanding is the public entry point. */
@@ -962,7 +1045,7 @@ function Sidebar({ view, setView, onNew, onPrivacy, onClose }: { view: View; set
     </button>
   );
   return (
-    <aside className="sidebar">
+    <aside className="sidebar workspace-sidebar">
       <div className="mobile-sidebar-head">
         <span>Navigate</span>
         <button className="icon-button" title="Close navigation" aria-label="Close navigation" onClick={onClose}><X size={18} /></button>
@@ -971,31 +1054,32 @@ function Sidebar({ view, setView, onNew, onPrivacy, onClose }: { view: View; set
         <strong>MediGuide AI</strong>
         <small>Health Document Intelligence</small>
       </div>
+      <button className="new-conversation" onClick={onNew}><Plus size={17} /> New</button>
       <button className={view === "demo" ? "nav-item demo-nav-cta active" : "nav-item demo-nav-cta"} onClick={() => setView("demo")}>
-        <PlayCircle size={17} /> Try with synthetic data
+        <PlayCircle size={17} /> Try synthetic data
       </button>
-      <div className="sidebar-label">PRIMARY</div>
+      <div className="sidebar-label">WORKSPACE</div>
       <nav>
         {item("documents", "Documents", FileText)}
         {item("labs", "Lab Timeline", FlaskConical)}
-        {item("sources", "Source Evidence", BookOpen)}
-      </nav>
-      <p className="sidebar-pipeline-note">Documents → Verification → Lab Timeline → Grounded Explanation → Source Evidence</p>
-      <div className="sidebar-label knowledge-label">SUPPORTING</div>
-      <nav>
         {item("medication", "Medications", Pill)}
-        {item("visit", "Visit Preparation", Stethoscope)}
+        {item("visit", "Visit Prep", Stethoscope)}
         {item("conversation", "Ask MediGuide", HomeIcon)}
+      </nav>
+      <div className="sidebar-label knowledge-label">KNOWLEDGE</div>
+      <nav>
         {item("sources", "Sources", BookOpen)}
+      </nav>
+      <div className="sidebar-label knowledge-label">SYSTEM</div>
+      <nav>
         <button className="nav-item" onClick={onPrivacy}><ShieldCheck size={17} /> Privacy</button>
         {item("system", "System Status", Activity)}
       </nav>
-      <button className="new-conversation" onClick={onNew}><Plus size={17} /> New conversation</button>
       <div className="sidebar-footer">
         <span className="status-dot" />
         <div>
-          <strong>Two provenance chains</strong>
-          <small>Lab values → report page · Explanations → approved sources</small>
+          <strong>Document → Source</strong>
+          <small>Verify, timeline, then trace</small>
         </div>
       </div>
     </aside>
@@ -1008,9 +1092,9 @@ function Conversation({ answer, status, streaming, sources, messages, loading, e
   return <div className="conversation-view">
     <div className="conversation-header">
       <div>
-        <p className="eyebrow">PRIVATE • LOCAL • EVIDENCE-SUPPORTED</p>
+        <p className="eyebrow">EDUCATIONAL SUPPORT</p>
         <h2>{answer ? "Your health question, clarified." : "What can I help you understand today?"}</h2>
-        {!answer && <p>Ask a health question, review a document, use your voice, or prepare for an appointment — in one private workspace.</p>}
+        {!answer && <p>Ask a health question, review a document, use your voice, or prepare for an appointment — in one workspace.</p>}
       </div>
       <div className="conversation-meta">
         <span className="response-count">{messages.filter((message) => message.role === "user").length} session {messages.filter((message) => message.role === "user").length === 1 ? "question" : "questions"}</span>
@@ -1191,6 +1275,7 @@ function Documents({
   selectedSource, setSelectedSource,
   dragging, recentSessions, onOpenSession, onUpload, onLoadSample, demoGuide, onOpenLabsFromDemo, onDrop, onDragEnter, onDragLeave, onFieldChange, onConfirm, onExplain, onSuggestQuestions, onPrepareVisit, onAskAbout, onExportFields, onOpenLabs, onReset,
   loading, error, errorKind, labsHint, confirmedLabCodes, onRetry, onSystem, onRemove,
+  processStage, processFailed, fieldReviewState, setFieldReviewState, previewZoom, setPreviewZoom, sourceBreadcrumb, onClearBreadcrumb, onBackToTimeline,
 }: {
   apiUrl: string;
   docState: DocState | null;
@@ -1234,46 +1319,80 @@ function Documents({
   onRetry: () => void;
   onSystem: () => void;
   onRemove: () => void;
+  processStage: ProcessStageId | null;
+  processFailed: boolean;
+  fieldReviewState: Record<string, "unverified" | "confirmed" | "corrected" | "rejected">;
+  setFieldReviewState: (value: Record<string, "unverified" | "confirmed" | "corrected" | "rejected"> | ((prev: Record<string, "unverified" | "confirmed" | "corrected" | "rejected">) => Record<string, "unverified" | "confirmed" | "corrected" | "rejected">)) => void;
+  previewZoom: number;
+  setPreviewZoom: (value: number) => void;
+  sourceBreadcrumb: string;
+  onClearBreadcrumb: () => void;
+  onBackToTimeline: () => void;
 }) {
-  const uploadErrorTitle = errorKind === "extract" ? "Document uploaded, but extraction failed" : "Document upload failed";
+  const uploadErrorTitle = errorKind === "extract"
+    ? "We couldn't finish reading this document"
+    : errorKind === "confirm"
+      ? "Could not save reviewed values"
+      : errorKind === "explain"
+        ? "Educational explanation unavailable"
+        : "Document upload failed";
   const uploadErrorMessage = error || (errorKind === "extract"
-    ? "Your file was received successfully, but MediGuide could not read its contents."
+    ? "Your original file is still available."
     : "MediGuide could not upload this file. The document has not been stored.");
+  const reviewedCount = docFields.filter((field) => fieldReviewState[field.field_id] && fieldReviewState[field.field_id] !== "unverified").length;
 
   if (!docState) {
     return <div className="workflow-view">
       <div className="workflow-heading-row">
-        <div><p className="eyebrow">DOCUMENT REVIEW</p><h2>Understand the details.</h2><p className="workflow-lead">Information found in your report — review every extracted value before any explanation.</p></div>
-        <span className="workflow-badge"><ShieldCheck size={14} /> Human review first</span>
+        <div>
+          <p className="eyebrow">DOCUMENTS</p>
+          <h2>Documents</h2>
+          <p className="workflow-lead">Upload and review health documents while keeping extracted information connected to its source.</p>
+        </div>
+        <div className="heading-actions">
+          <button className="forest-button" type="button" onClick={onUpload}><Plus size={15} /> Upload document</button>
+          <button className="quiet-button" type="button" onClick={onLoadSample}>Try synthetic report</button>
+        </div>
       </div>
+      {!loading && !error && recentSessions.length === 0 && (
+        <EmptyState
+          title="No documents yet."
+          body="Upload a lab report or explore MediGuide using synthetic data."
+        >
+          <button className="forest-button" type="button" onClick={onUpload}>Upload document</button>
+          <button className="quiet-button" type="button" onClick={onLoadSample}>Try synthetic report</button>
+        </EmptyState>
+      )}
       {!loading && <div className={dragging ? "upload-zone is-dragging" : "upload-zone"} onDrop={onDrop} onDragEnter={(event) => { event.preventDefault(); onDragEnter(); }} onDragOver={(event) => event.preventDefault()} onDragLeave={onDragLeave}>
         <span className="upload-art"><FileText size={25} /><span><ImageIcon size={14} /></span></span>
-        <strong>Upload a health document</strong>
-        <span>Drop a PDF or image here, or choose a file</span>
-        <small>PDF, PNG, JPG, WEBP · Multi-page supported · Temporary session file</small>
+        <strong>Drop a PDF or image here</strong>
+        <span>Lab reports and medication labels · Multi-page supported</span>
         <div className="upload-actions">
           <button className="forest-button" type="button" onClick={onUpload}>Choose file <Paperclip size={16} /></button>
-          <button className="quiet-button" type="button" onClick={onLoadSample}>Try three-date sample lab report</button>
+          <button className="quiet-button" type="button" onClick={onLoadSample}>Try synthetic report</button>
         </div>
-        <button type="button" className="forest-button demo-inline-cta" onClick={onLoadSample} style={{ marginTop: 12 }}>
-          <PlayCircle size={16} /> Try with synthetic data
-        </button>
       </div>}
       {demoGuide && <p className="demo-guide-banner">{demoGuide}</p>}
-      {loading && <div className="processing large"><Sparkles size={18} /> {loading}<i /><i /><i /></div>}
+      {(loading || processStage) && <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage("", loading)} failed={processFailed} />}
+      {loading && !processStage && <div className="processing large"><Sparkles size={18} /> {loading}<i /><i /><i /></div>}
       {error && <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />}
-      {errorKind === "extract" && error && <button type="button" className="quiet-button" onClick={onRemove}>Remove document</button>}
-      {!loading && recentSessions.length > 0 && <div className="recent-sessions">
-        <p className="eyebrow">RECENT DOCUMENTS</p>
+      {errorKind === "extract" && error && <div className="explain-actions"><button type="button" className="quiet-button" onClick={onRemove}>Remove document</button></div>}
+      {!loading && recentSessions.length > 0 && <div className="document-list">
+        <p className="eyebrow">YOUR DOCUMENTS</p>
         {recentSessions.map((session) => (
-          <button type="button" className="recent-session-row" key={session.document_id} onClick={() => onOpenSession(session.document_id)}>
-            <FileText size={16} />
-            <span>
-              <strong>{session.filename}</strong>
-              <small>{session.status.replaceAll("_", " ")} · {session.field_count} field{session.field_count === 1 ? "" : "s"}</small>
-            </span>
-            <ChevronRight size={16} />
-          </button>
+          <article className="document-list-row" key={session.document_id}>
+            <button type="button" className="document-list-main" onClick={() => onOpenSession(session.document_id)}>
+              <FileText size={18} />
+              <span>
+                <strong>{session.filename}</strong>
+                <small>Lab report · {session.page_count || "—"} page{(session.page_count || 0) === 1 ? "" : "s"} · {session.field_count} extracted measurement{session.field_count === 1 ? "" : "s"}</small>
+              </span>
+            </button>
+            <div className="document-list-meta">
+              <span className={session.confirmed ? "status-chip confirmed" : "status-chip"}>{session.confirmed ? "✓ Verified" : session.status.replaceAll("_", " ")}</span>
+              <button type="button" className="quiet-button" onClick={() => onOpenSession(session.document_id)}>Open</button>
+            </div>
+          </article>
         ))}
       </div>}
     </div>;
@@ -1282,58 +1401,83 @@ function Documents({
   const visibleFields = docFields.filter((field) => field.page_number === docSelectedPage);
   const activePreview = docState.pages.find((page) => page.page_number === docSelectedPage) || docState.pages[0];
 
+  if ((loading || processStage) && !docFields.length) {
+    return <div className="workflow-view doc-intel-view">
+      <div className="workflow-heading-row">
+        <div>
+          <p className="eyebrow">DOCUMENTS</p>
+          <h2>{docState.filename}</h2>
+          <p className="workflow-lead">Processing your document while keeping the original file available.</p>
+        </div>
+      </div>
+      <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage(docState.status, loading)} failed={processFailed} />
+      {error && <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />}
+      {error && (
+        <div className="explain-actions">
+          <button type="button" className="quiet-button" onClick={onRetry}>Retry processing</button>
+          <button type="button" className="quiet-button" onClick={onRemove}>Remove document</button>
+        </div>
+      )}
+    </div>;
+  }
+
   return <div className="workflow-view doc-intel-view">
     <div className="workflow-heading-row">
-      <div><p className="eyebrow">DOCUMENT REVIEW</p><h2>{docState.filename}</h2><p className="workflow-lead">{docState.page_count} page{docState.page_count === 1 ? "" : "s"} · {docConfirmed ? "Confirmed by you" : "Information found in your report — review before confirming"}</p></div>
+      <div>
+        <p className="eyebrow">DOCUMENT REVIEW</p>
+        <h2>{docState.filename}</h2>
+        <p className="workflow-lead">{docState.page_count} page{docState.page_count === 1 ? "" : "s"} · {docConfirmed ? "Confirmed by you" : "Information found in your report — review before confirming"}</p>
+      </div>
       <div className="heading-actions">
         {docFields.length > 0 && <button className="quiet-button" onClick={onExportFields}><Clipboard size={14} /> Export fields</button>}
-        <button className="quiet-button" onClick={onReset}><RefreshCw size={14} /> Upload a different document</button>
+        <button className="quiet-button" onClick={onReset}><Trash2 size={14} /> Delete document</button>
       </div>
     </div>
 
-    {error && <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />}
+    {sourceBreadcrumb && (
+      <div className="source-breadcrumb" aria-label="Source navigation">
+        <span>{sourceBreadcrumb}</span>
+        <button type="button" className="quiet-button" onClick={() => { onClearBreadcrumb(); onBackToTimeline(); }}>Back to timeline</button>
+      </div>
+    )}
+
+    {error && (
+      <div className="doc-error-recovery">
+        <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />
+        <div className="explain-actions">
+          <button type="button" className="quiet-button" onClick={onRetry}>Retry processing</button>
+          <button type="button" className="quiet-button" onClick={onRemove}>Remove document</button>
+        </div>
+      </div>
+    )}
+    {(loading || processStage) && <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage(docState.status, loading)} failed={processFailed} />}
     {demoGuide && <p className="demo-guide-banner">{demoGuide}{docConfirmed ? <>{" "}<button type="button" className="quiet-button" onClick={onOpenLabsFromDemo}>Open Lab Timeline</button></> : null}</p>}
     {labsHint && <div className="labs-persist-hint-row">
       <p className="labs-persist-hint"><FlaskConical size={14} /> {labsHint}</p>
       {confirmedLabCodes.length > 0 && <button type="button" className="quiet-button" onClick={onOpenLabs}><TrendingUp size={14} /> View on lab timeline</button>}
     </div>}
 
-    {docFields.length > 1 && <div className="doc-field-index" aria-label="All extracted fields">
-      <span className="doc-field-index-label">All fields</span>
-      {docFields.map((field) => (
-        <button
-          key={field.field_id}
-          type="button"
-          className={highlightedFieldId === field.field_id ? "doc-field-chip selected" : "doc-field-chip"}
-          onClick={() => {
-            setDocSelectedPage(field.page_number);
-            setHighlightedFieldId(field.field_id);
-          }}
-        >
-          {field.label} · p{field.page_number}
-        </button>
-      ))}
-    </div>}
-
-    {docState.page_count >= 1 && <div className="page-strip" aria-label="Document pages">
-      {docState.pages.map((page) => (
-        <button key={page.page_number} className={docSelectedPage === page.page_number ? "page-thumb selected" : "page-thumb"} onClick={() => setDocSelectedPage(page.page_number)}>
-          {page.preview_url ? <img src={`${apiUrl}${page.preview_url}`} alt={`Page ${page.page_number} preview`} /> : <span className="page-placeholder">Page {page.page_number}</span>}
-          <span>Page {page.page_number}</span>
-        </button>
-      ))}
+    {docState.page_count >= 1 && <div className="page-nav-bar" aria-label="Page navigation">
+      <button type="button" className="quiet-button" disabled={docSelectedPage <= 1} onClick={() => setDocSelectedPage(Math.max(1, docSelectedPage - 1))}>Previous</button>
+      <span>Page {docSelectedPage} of {docState.page_count}</span>
+      <button type="button" className="quiet-button" disabled={docSelectedPage >= docState.page_count} onClick={() => setDocSelectedPage(Math.min(docState.page_count, docSelectedPage + 1))}>Next</button>
+      <button type="button" className="quiet-button" onClick={() => setPreviewZoom(1)}><ZoomIn size={14} /> Fit width</button>
+      <button type="button" className="quiet-button" onClick={() => setPreviewZoom(Math.min(1.6, previewZoom + 0.15))}>Zoom in</button>
+      <button type="button" className="quiet-button" onClick={() => setPreviewZoom(Math.max(0.8, previewZoom - 0.15))}>Zoom out</button>
     </div>}
 
     <div className="extraction-grid doc-review-grid">
       <div className="document-preview doc-page-preview">
-        {activePreview?.preview_url ? <img src={`${apiUrl}${activePreview.preview_url}`} alt={`Page ${docSelectedPage} preview`} /> : <div className="doc-preview-placeholder"><FileText size={38} /><span>Page {docSelectedPage} preview</span></div>}
-        <small>Check names, values, units, dates, and reference ranges</small>
+        <p className="panel-kicker">ORIGINAL REPORT · PAGE {docSelectedPage}</p>
+        {activePreview?.preview_url ? <img src={`${apiUrl}${activePreview.preview_url}`} alt={`Page ${docSelectedPage} preview`} style={{ transform: `scale(${previewZoom})`, transformOrigin: "top center" }} /> : <div className="doc-preview-placeholder"><FileText size={38} /><span>Page {docSelectedPage} preview</span></div>}
+        <small>Check names, values, units, dates, and reference ranges against the source page</small>
       </div>
 
       <div className="extracted-fields doc-fields">
         <p className="eyebrow">{docConfirmed ? "CONFIRMED" : "VERIFICATION"} · PAGE {docSelectedPage}</p>
         <h3 className="doc-fields-heading">Extracted lab information</h3>
         <p className="doc-fields-support">Information found in your report — confirm before it enters the timeline</p>
+        {!docConfirmed && docFields.length > 0 && <p className="review-progress">{reviewedCount} of {docFields.length} reviewed</p>}
         {visibleFields.length === 0 && <p className="doc-fields-empty">No information was found on this page.</p>}
         {visibleFields.map((field) => (
           <div
@@ -1344,6 +1488,7 @@ function Documents({
             <div className="doc-field-label">
               <strong>{field.label}</strong>
               <span className={`confidence-pill confidence-${field.confidence}`}>{DOC_CONFIDENCE_LABELS[field.confidence]}</span>
+              <span className="status-chip">{fieldReviewState[field.field_id] === "corrected" ? "Corrected" : fieldReviewState[field.field_id] === "rejected" ? "Rejected" : fieldReviewState[field.field_id] === "confirmed" || docConfirmed ? "Confirmed" : "Unverified"}</span>
               {(field.status === "flagged_high_on_report" || field.status === "flagged_low_on_report") && DOC_STATUS_LABELS[field.status] ? (
                 <span className={`status-pill status-pill-${field.status}`}>{DOC_STATUS_LABELS[field.status]}</span>
               ) : null}
@@ -1353,12 +1498,19 @@ function Documents({
               <label>Unit<input value={field.unit} readOnly={docConfirmed} onChange={(event) => onFieldChange(field.field_id, { unit: event.target.value })} /></label>
               <label>Reference range<input value={field.reference_range} readOnly={docConfirmed} onChange={(event) => onFieldChange(field.field_id, { reference_range: event.target.value })} /></label>
             </div>
+            {!docConfirmed && (
+              <div className="field-review-actions">
+                <button type="button" className="quiet-button" onClick={() => setFieldReviewState((current) => ({ ...current, [field.field_id]: "confirmed" }))}>Confirm</button>
+                <button type="button" className="quiet-button" onClick={() => setHighlightedFieldId(field.field_id)}>Edit</button>
+                <button type="button" className="quiet-button" onClick={() => setFieldReviewState((current) => ({ ...current, [field.field_id]: "rejected" }))}>Reject</button>
+              </div>
+            )}
           </div>
         ))}
 
         {!docConfirmed && <div className="confirm-gate">
           <label className="confirm"><input type="checkbox" checked={docReviewChecked} onChange={(event) => setDocReviewChecked(event.target.checked)} /> I reviewed the names, values, units, dates, and reference ranges above.</label>
-          <button className="forest-button" disabled={!docReviewChecked || Boolean(loading)} onClick={onConfirm}>Confirm reviewed values <Check size={16} /></button>
+          <button className="forest-button" disabled={!docReviewChecked || Boolean(loading)} onClick={onConfirm}>Confirm reviewed items <Check size={16} /></button>
         </div>}
 
         {docConfirmed && !docExplain && <div className="explain-gate">
@@ -1368,7 +1520,7 @@ function Documents({
             <button className="quiet-button" type="button" onClick={onPrepareVisit}><Stethoscope size={15} /> Prepare visit questions</button>
             <button className="quiet-button" type="button" onClick={onAskAbout}><Sparkles size={15} /> Ask about these values</button>
             <button className="quiet-button" type="button" onClick={onSuggestQuestions}>Suggest questions</button>
-            <button className="forest-button" disabled={Boolean(loading)} onClick={onExplain}>Get AI explanation <ArrowUpRight size={16} /></button>
+            <button className="forest-button" disabled={Boolean(loading)} onClick={onExplain}>Understand this result <ArrowUpRight size={16} /></button>
           </div>
         </div>}
         {docConfirmed && docExplain && <div className="explain-actions">
@@ -1379,7 +1531,7 @@ function Documents({
       </div>
     </div>
 
-    {loading && <div className="processing"><Sparkles size={17} /><span>{loading}</span><i /><i /><i /></div>}
+    {loading && !processStage && <div className="processing"><Sparkles size={17} /><span>{loading}</span><i /><i /><i /></div>}
 
     {docExplain && <DocExplainCard explain={docExplain} selectedSource={selectedSource} setSelectedSource={setSelectedSource} onJumpToPage={setDocSelectedPage} />}
   </div>;
@@ -1400,8 +1552,11 @@ function DocExplainCard({ explain, selectedSource, setSelectedSource, onJumpToPa
     ));
   };
   return <article className="answer-document doc-explain-card">
-    <div className="answer-kicker"><span><Sparkles size={14} /> MEDIGUIDE</span><small>Grounded Explanation</small></div>
-    <p className="eyebrow explain-provenance-label">EXPLANATION PROVENANCE</p>
+    <div className="answer-kicker"><span><Sparkles size={14} /> MEDIGUIDE</span><small>Educational context</small></div>
+    <p className="eyebrow explain-provenance-label">GROUNDED EXPLANATION</p>
+    <div className="explain-split-note">
+      <strong>What your document says</strong> stays separate from <strong>general educational information</strong>.
+    </div>
     <div className="answer-content">
       {lines.map((line, index) => {
         const heading = line.startsWith("#");
@@ -1411,7 +1566,7 @@ function DocExplainCard({ explain, selectedSource, setSelectedSource, onJumpToPa
     </div>
     {explain.sources.length > 0 && (
       <div className="explain-provenance-list">
-        <p className="eyebrow">CITATIONS → APPROVED SOURCES</p>
+        <p className="eyebrow">SOURCES</p>
         <ul>
           {explain.sources.map((source) => (
             <li key={source.citation_number}>
@@ -1735,7 +1890,7 @@ function formatCollectionDate(value?: string | null) {
 }
 
 function LabTimeline({
-  tests, selectedCode, onSelectCode, points, selectedPoint, onSelectPoint, onInspectDocument, onExport, onAddToVisit, onAskAbout, onDeleteObservation,
+  tests, selectedCode, onSelectCode, points, selectedPoint, onSelectPoint, onInspectDocument, onExport, onAddToVisit, onAskAbout, onRequestDeleteObservation, onOpenDocuments,
 }: {
   tests: LabTest[];
   selectedCode: string;
@@ -1747,7 +1902,8 @@ function LabTimeline({
   onExport: () => void;
   onAddToVisit: () => void;
   onAskAbout: () => void;
-  onDeleteObservation: (observationId: string) => void;
+  onRequestDeleteObservation: (observationId: string) => void;
+  onOpenDocuments: () => void;
 }) {
   const maxValue = Math.max(...points.map((point) => point.value ?? 0), 1);
   const activeTest = (tests.find((test) => test.test_code === selectedCode)?.display_name) || selectedCode;
@@ -1758,29 +1914,40 @@ function LabTimeline({
   const reportFlag = reportFlagLabel(selectedPoint?.range_status);
   const uniqueDocuments = new Set(points.map((point) => point.document_id)).size;
   const extractionConfidence = confidenceLabel(selectedPoint?.confidence);
+  const latest = points.length ? points[points.length - 1] : null;
 
   return <div className="workflow-view lab-timeline-view">
     <div className="workflow-heading-row">
       <div>
-        <p className="eyebrow">LAB RESULTS TIMELINE</p>
-        <h2>{activeTest}</h2>
-        <p className="workflow-lead">Signature provenance UX — click a measurement to open value provenance, then View source page.</p>
+        <p className="eyebrow">LAB TIMELINE</p>
+        <h2>Lab Timeline</h2>
+        <p className="workflow-lead">Explore verified measurements across reports.</p>
       </div>
       <div className="heading-actions">
-        {points.length > 0 && selectedPoint == null ? <button type="button" className="quiet-button" onClick={() => onSelectPoint(points[points.length - 1])}>View details</button> : null}
-        <button type="button" className="quiet-button" onClick={onAskAbout} disabled={!points.length}><Sparkles size={14} /> Ask about these labs</button>
+        <label className="timeline-control">
+          <span className="sr-only">Test selector</span>
+          <select value={selectedCode} onChange={(event) => onSelectCode(event.target.value)} aria-label="Test selector">
+            {(tests.length ? tests : [{ test_code: "hemoglobin_a1c", display_name: "Hemoglobin A1C", observation_count: 0, has_data: false }]).map((test) => (
+              <option key={test.test_code} value={test.test_code}>{test.display_name}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="quiet-button" onClick={onAskAbout} disabled={!points.length}><Sparkles size={14} /> Understand this result</button>
         <button type="button" className="quiet-button" onClick={onAddToVisit}><Stethoscope size={14} /> Add to visit prep</button>
         <button type="button" className="quiet-button" onClick={onExport} disabled={!points.length}><Clipboard size={14} /> Export CSV</button>
       </div>
     </div>
-    <div className="lab-test-row" role="tablist" aria-label="Tracked lab tests">
-      {(tests.length ? tests : [{ test_code: "hemoglobin_a1c", display_name: "Hemoglobin A1C", observation_count: 0, has_data: false }]).map((test) => (
-        <button key={test.test_code} type="button" className={selectedCode === test.test_code ? "lab-test-chip active" : "lab-test-chip"} onClick={() => onSelectCode(test.test_code)}>
-          {test.display_name}
-          <small>{test.observation_count}</small>
-        </button>
-      ))}
-    </div>
+
+    {latest && (
+      <div className="latest-result-card">
+        <p className="panel-kicker">Latest verified result · {activeTest}</p>
+        <p className="lab-result-value">{latest.value_text} {latest.unit}</p>
+        <p className="lab-result-date">{formatCollectionDate(latest.collection_date || latest.report_date)}</p>
+        {reportFlagLabel(latest.range_status) ? <p className="lab-range-flag">{reportFlagLabel(latest.range_status)}</p> : null}
+        {(latest.reference_range || latest.reference_text) ? <p className="latest-ref">Printed reference range: {latest.reference_range || latest.reference_text}</p> : null}
+      </div>
+    )}
+
     <div className="lab-chart-panel">
       {points.length ? (
         <div className="lab-chart" role="list" aria-label={`${activeTest} timeline`}>
@@ -1794,15 +1961,17 @@ function LabTimeline({
           })}
         </div>
       ) : (
-        <div className="lab-empty">
-          <TrendingUp size={22} />
-          <strong>No verified observations yet</strong>
-          <p>Use Demo Mode → Try with synthetic data, or confirm a report in Documents.</p>
-        </div>
+        <EmptyState
+          title="No verified measurements yet."
+          body="Measurements appear here after extracted information has been reviewed and confirmed."
+        >
+          <button type="button" className="forest-button" onClick={onOpenDocuments}>Review documents</button>
+        </EmptyState>
       )}
     </div>
     {points.length > 0 && <p className="lab-timeline-summary">{points.length} verified measurement{points.length === 1 ? "" : "s"} · {uniqueDocuments} source report{uniqueDocuments === 1 ? "" : "s"}</p>}
     {points.length > 0 && <table className="lab-table">
+      <caption className="sr-only">{activeTest} verified measurements</caption>
       <thead><tr><th>Date</th><th>Value</th><th>Change</th><th>Document</th><th>Page</th></tr></thead>
       <tbody>
         {points.map((point) => (
@@ -1817,26 +1986,37 @@ function LabTimeline({
       </tbody>
     </table>}
     {selectedPoint && <div className="drawer-backdrop lab-result-drawer-backdrop" onClick={() => onSelectPoint(null)}>
-      <aside className="drawer lab-result-drawer" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="Lab value provenance">
+      <aside className="drawer lab-result-drawer" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Lab value provenance">
         <button className="drawer-close" type="button" onClick={() => onSelectPoint(null)} aria-label="Close"><X size={18} /></button>
         <p className="eyebrow">LAB VALUE PROVENANCE</p>
         <h2>{selectedPoint.test_name}</h2>
         <p className="lab-result-value">{selectedPoint.value_text} {selectedPoint.unit}</p>
         <p className="lab-result-date">{formatCollectionDate(selectedDate)}</p>
         {reportFlag ? <p className="lab-range-flag">{reportFlag}</p> : null}
-        <p className="provenance-chain-note">Timeline point → Confirmed observation → Extracted field → Document page → Original uploaded report</p>
+        <p className="panel-kicker">REPORT INFORMATION</p>
         <dl>
           <div><dt>Printed reference range</dt><dd>{selectedReference || "Not listed on report"}</dd></div>
-          <div><dt>Verification</dt><dd>{selectedVerification === "confirmed" || selectedVerification === "human_verified" ? "✓ Confirmed" : (selectedVerification || "Unknown")}</dd></div>
-          {extractionConfidence ? <div><dt>Extraction confidence</dt><dd>{extractionConfidence} <small className="confidence-note">(extraction only — not medical correctness)</small></dd></div> : null}
-          <div><dt>Source</dt><dd>{selectedPoint.document_name}{selectedDate ? ` — ${formatCollectionDate(selectedDate)}` : ""}</dd></div>
+          <div><dt>Report flag</dt><dd>{selectedPoint.source_flag === "H" ? "High" : selectedPoint.source_flag === "L" ? "Low" : reportFlag || "None listed"}</dd></div>
+        </dl>
+        <p className="panel-kicker">VERIFICATION</p>
+        <dl>
+          <div><dt>Status</dt><dd>{selectedVerification === "confirmed" || selectedVerification === "human_verified" ? "✓ Confirmed" : (selectedVerification || "Unknown")}</dd></div>
+          {extractionConfidence ? <div><dt>Extraction quality</dt><dd>{extractionConfidence} <small className="confidence-note">(extraction only — not medical correctness)</small></dd></div> : null}
+        </dl>
+        <p className="panel-kicker">SOURCE</p>
+        <dl>
+          <div><dt>Document</dt><dd>{selectedPoint.document_name}</dd></div>
           <div><dt>Page</dt><dd>{selectedPage}</dd></div>
+          {selectedPoint.extracted_value != null && <div><dt>Extracted value</dt><dd>{selectedPoint.extracted_value}</dd></div>}
+          {selectedPoint.confirmed_value != null && <div><dt>Confirmed value</dt><dd>{selectedPoint.confirmed_value}</dd></div>}
         </dl>
         <div className="lab-point-actions">
           <button type="button" className="forest-button" onClick={() => onInspectDocument(selectedPoint.document_id, selectedPage, selectedPoint.field_id)}>
             <FileText size={14} /> View source page
           </button>
-          <button type="button" className="quiet-button destructive-action" onClick={() => onDeleteObservation(selectedPoint.observation_id)}>
+          <button type="button" className="quiet-button" onClick={onAskAbout}><Sparkles size={14} /> Understand this result</button>
+          <button type="button" className="quiet-button" onClick={() => onInspectDocument(selectedPoint.document_id, selectedPage)}>View document</button>
+          <button type="button" className="quiet-button destructive-action" onClick={() => onRequestDeleteObservation(selectedPoint.observation_id)}>
             <Trash2 size={14} /> Delete result
           </button>
           <p className="lab-delete-note">Removes this timeline observation only. The source document stays available until you clear it separately.</p>
@@ -1847,34 +2027,34 @@ function LabTimeline({
 }
 
 function SystemStatusView({ status, health, onRetry }: { status: SystemStatus | null; health: HealthResponse | null; onRetry: () => void }) {
-  const base = status?.components || Object.entries(health?.statuses || {}).map(([key, value]) => ({ name: healthLabels[key] || key, key, status: value.status, detail: value.detail }));
-  const hasN8n = base.some((component) => component.key === "n8n" || component.name.toLowerCase() === "n8n");
-  const components = hasN8n ? base : [...base, { name: "n8n", key: "n8n", status: health?.statuses?.n8n?.status || "ready", detail: "Workflow automation (optional)" }];
+  const base = status?.components || Object.entries(health?.statuses || {}).map(([key, value]) => ({ name: friendlyHealthLabel(key, healthLabels[key] || key), key, status: value.status, detail: value.detail }));
+  const hasN8n = base.some((component) => component.key === "n8n" || component.name.toLowerCase().includes("workflow"));
+  const components = hasN8n ? base : [...base, { name: "Workflow automation", key: "n8n", status: health?.statuses?.n8n?.status || "ready", detail: "Optional automation support" }];
   const knowledge = status?.knowledge || health?.knowledge || {};
-  const labelFor = (componentStatus: string, detail: string) => {
-    if (componentStatus === "ready") return "Healthy";
-    if ((detail || "").toLowerCase().includes("degraded")) return "Degraded";
-    return "Offline";
-  };
+  const limited = components.some((component) => friendlyComponentStatus(component.status, component.detail) === "Limited" || friendlyComponentStatus(component.status, component.detail) === "Unavailable");
   return <div className="workflow-view system-status-view">
     <p className="eyebrow">SYSTEM</p>
-    <h2>MediGuide System</h2>
-    <p className="workflow-lead">Component health for the local AI stack — no credentials, internal URLs, or file paths.</p>
+    <h2>System Status</h2>
+    <p className="workflow-lead">Service availability for document processing and educational features. Documents and verified information remain accessible when explanations are limited.</p>
+    {limited && <p className="system-limited-note">Some educational explanations may be temporarily unavailable. Your documents and verified information remain accessible.</p>}
     <div className="system-grid">
-      {components.map((component) => (
-        <div key={component.key} className="system-card">
-          <span className={component.status === "ready" ? "status-dot" : "status-dot off"} />
-          <div>
-            <strong>{component.name}</strong>
-            <em className="system-health-label">{labelFor(component.status, component.detail)}</em>
-            <small>{component.detail}</small>
+      {components.map((component) => {
+        const label = friendlyComponentStatus(component.status, component.detail);
+        return (
+          <div key={component.key} className="system-card">
+            <span className={label === "Available" ? "status-dot" : "status-dot off"} aria-hidden />
+            <div>
+              <strong>{friendlyHealthLabel(component.key, component.name)}</strong>
+              <em className="system-health-label">{label}</em>
+              <small>{component.detail}</small>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
     <div className="knowledge-panel">
-      <h3>Knowledge base</h3>
-      <p><strong>{knowledge.active_chunks ?? "—"}</strong> active chunks</p>
+      <h3>Educational sources</h3>
+      <p><strong>{knowledge.active_chunks ?? "—"}</strong> active passages</p>
       <p><strong>{knowledge.approved_sources ?? "—"}</strong> approved sources</p>
     </div>
     <button className="forest-button" onClick={onRetry}><RefreshCw size={15} /> Refresh status</button>
@@ -1893,7 +2073,24 @@ function Sources({ sources, library, onSelect }: { sources: Source[]; library: L
   return <div className="workflow-view"><p className="eyebrow">SOURCE EVIDENCE</p><h2>Approved sources.</h2><p className="workflow-lead">Trusted local retrieval keeps educational explanations grounded. Lab values use a separate provenance chain back to the original report page.</p><input className="source-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search publishers or titles..." aria-label="Search approved sources" /><div className="source-list">{filtered.length ? filtered.map((source) => <a key={source.id} href={source.url || undefined} target={source.url ? "_blank" : undefined} rel={source.url ? "noreferrer" : undefined} className={source.url ? "" : "no-link"}><span><BookOpen size={15} /></span><div><strong>{source.publisher}</strong><b>{source.title}</b><small>{source.reviewed ? `Reviewed ${source.reviewed}` : "Approved source"}</small></div>{source.url && <ArrowUpRight size={16} />}</a>) : <div className="empty-panel"><BookOpen size={23} /><p>{library.length ? "No sources match that search." : "The knowledge base is still loading."}</p></div>}</div></div>;
 }
 
-function Privacy({ onClose, onClear }: { onClose: () => void; onClear: () => void }) { return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer" onClick={(event) => event.stopPropagation()}><button className="drawer-close" onClick={onClose}><X size={18} /></button><p className="eyebrow">PRIVACY CENTER</p><h2>Private local processing.</h2><p>Your session is designed to stay close to your device.</p><ul><li><Check size={16} /> Local language model</li><li><Check size={16} /> Local speech transcription</li><li><Check size={16} /> Local document processing</li><li><Check size={16} /> Trusted local retrieval</li><li><Check size={16} /> Chat persistence disabled</li><li><Check size={16} /> Temporary audio cleanup</li></ul><div className="drawer-warning"><strong>Public demo mode</strong><span>Do not enter identifying health information.</span></div><button className="drawer-action" onClick={onClear}><Trash2 size={16} /> Clear session</button><button className="drawer-action secondary" onClick={() => { try { window.sessionStorage.removeItem(VISIT_STORAGE_KEY); } catch { /* ignore */ } onClear(); }}><RefreshCw size={16} /> Clear temporary files</button></aside></div>; }
+function Privacy({ onClose, onClear }: { onClose: () => void; onClear: () => void }) {
+  return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Privacy">
+    <button className="drawer-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+    <p className="eyebrow">PRIVACY</p>
+    <h2>Privacy-conscious processing.</h2>
+    <p>MediGuide is an educational prototype. Session uploads and temporary files are designed to stay under user control.</p>
+    <ul>
+      <li><Check size={16} /> User-controlled uploads</li>
+      <li><Check size={16} /> Clear-session controls</li>
+      <li><Check size={16} /> Document deletion from the current session</li>
+      <li><Check size={16} /> Educational use only</li>
+      <li><Check size={16} /> No advertising profile</li>
+    </ul>
+    <div className="drawer-warning"><strong>Public demo mode</strong><span>Do not enter identifying health information.</span></div>
+    <button className="drawer-action" onClick={onClear}><Trash2 size={16} /> Clear session</button>
+    <button className="drawer-action secondary" onClick={() => { try { window.sessionStorage.removeItem(VISIT_STORAGE_KEY); } catch { /* ignore */ } onClear(); }}><RefreshCw size={16} /> Clear temporary session data</button>
+  </aside></div>;
+}
 
 function HelpDrawer({ onClose, onOpenView }: { onClose: () => void; onOpenView: (view: View) => void }) {
   return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer" onClick={(event) => event.stopPropagation()}>
