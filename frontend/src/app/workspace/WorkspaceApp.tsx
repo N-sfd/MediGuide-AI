@@ -215,7 +215,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
   const [addConfirmedLabsHint, setAddConfirmedLabsHint] = useState("");
   const [demoGuide, setDemoGuide] = useState("");
   const [confirmedLabCodes, setConfirmedLabCodes] = useState<string[]>([]);
-  const [docErrorKind, setDocErrorKind] = useState<"upload" | "extract" | "confirm" | "explain" | "">("");
+  const [docErrorKind, setDocErrorKind] = useState<"upload" | "extract" | "confirm" | "explain" | "sample" | "">("");
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
   const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
   const [processStage, setProcessStage] = useState<ProcessStageId | null>(null);
@@ -484,14 +484,18 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     try {
       setView("documents");
       setError("");
+      setDocErrorKind("");
       if (options?.guided) {
         setDemoGuide("Step 1 of 4 — Verification: Review extracted lab information, then confirm. Synthetic Jan / Apr / Aug 2026 values only.");
       } else {
         setDemoGuide("");
       }
-      setLoadingStage("Loading synthetic three-date lab report...");
-      const response = await fetch(`${API_URL}/api/documents/v2/sample/lab-report`);
-      if (!response.ok) throw new Error("Sample lab report is unavailable.");
+      setLoadingStage("Preparing synthetic reports...");
+      const response = await fetchWithTimeout(`${API_URL}/api/documents/v2/sample/lab-report`);
+      if (!response.ok) {
+        const apiError = await parseApiError(response, "We couldn't prepare the synthetic reports.");
+        throw new Error(apiError.message);
+      }
       const blob = await response.blob();
       const file = new File([blob], "sample-lab-report.pdf", { type: "application/pdf" });
       setLoadingStage("");
@@ -500,7 +504,8 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         setDemoGuide("Step 1 of 4 — Verification: Review extracted lab information on each page, then confirm. Next: Lab Timeline.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the sample lab report.");
+      setError(err instanceof Error ? err.message : "We couldn't prepare the synthetic reports.");
+      setDocErrorKind("sample");
       setLoadingStage("");
     }
   }
@@ -994,6 +999,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     if (docErrorKind === "extract") void retryDocumentExtraction();
     else if (docErrorKind === "confirm") void confirmDocument();
     else if (docErrorKind === "explain") void explainDocument();
+    else if (docErrorKind === "sample") void loadSampleLabReport({ guided: demoGuide !== "" });
     else fileInput.current?.click();
   }
 
@@ -1328,7 +1334,7 @@ function Documents({
   onReset: () => void;
   loading: string;
   error: string;
-  errorKind: "upload" | "extract" | "confirm" | "explain" | "";
+  errorKind: "upload" | "extract" | "confirm" | "explain" | "sample" | "";
   labsHint: string;
   confirmedLabCodes: string[];
   onRetry: () => void;
@@ -1350,10 +1356,14 @@ function Documents({
       ? "Could not save reviewed values"
       : errorKind === "explain"
         ? "Educational explanation unavailable"
-        : "Document upload failed";
-  const uploadErrorMessage = error || (errorKind === "extract"
-    ? "Your original file is still available."
-    : "MediGuide could not upload this file. The document has not been stored.");
+        : errorKind === "sample"
+          ? "We couldn't prepare the synthetic reports"
+          : "Document upload failed";
+  const uploadErrorMessage = errorKind === "sample"
+    ? `${error || "We couldn't prepare the synthetic reports."} No personal documents were affected.`
+    : error || (errorKind === "extract"
+      ? "Your original file is still available."
+      : "MediGuide could not upload this file. The document has not been stored.");
   const reviewedCount = docFields.filter((field) => fieldReviewState[field.field_id] && fieldReviewState[field.field_id] !== "unverified").length;
 
   if (!docState) {

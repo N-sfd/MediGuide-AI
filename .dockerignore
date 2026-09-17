@@ -5,5 +5,4 @@ __pycache__
 .git
 frontend/node_modules
 outputs/speech/*
-data/samples
 *.pyc

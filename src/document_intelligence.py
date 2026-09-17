@@ -34,6 +34,8 @@ from src.image_validator import validate_image_file
 from src.labs.service import create_observations_from_document
 from src.observability.logging import get_logger
 from src.safety import check_for_emergency
+from src.sample_fixtures import generate_sample_lab_report
+from src.shared.errors import MediGuideError
 from src.shared.job_runner import run_extraction_job
 from src.shared.resilience import (
     PermanentProcessingError,
@@ -757,10 +759,36 @@ async def list_sessions() -> dict[str, object]:
 
 @router.get("/sample/lab-report")
 async def sample_lab_report():
-    """Serve the bundled three-date synthetic lab report for portfolio demos."""
+    """Serve the bundled three-date synthetic lab report for portfolio demos.
+
+    The file ships in the repo (and the Docker image — see Dockerfile.render
+    and .dockerignore), but a packaging mistake in either has previously
+    made this file silently absent in a deployed environment while working
+    fine locally. Regenerating it on demand means that class of bug
+    degrades to "slightly slower first request," not "demo permanently
+    broken until the next deploy."
+    """
     sample_path = BASE_DIR / "data" / "samples" / "sample-lab-report.pdf"
     if not sample_path.exists():
-        raise HTTPException(status_code=404, detail="Sample lab report is not available.")
+        logger.warning(
+            "sample_lab_report_missing_regenerating",
+            extra={"path": str(sample_path)},
+        )
+        try:
+            generate_sample_lab_report(sample_path)
+        except Exception as error:
+            logger.error(
+                "sample_lab_report_generation_failed",
+                extra={"technical_detail": f"{type(error).__name__}: {error}"},
+                exc_info=error,
+            )
+            raise MediGuideError(
+                "DEMO_FIXTURE_UNAVAILABLE",
+                "We couldn't prepare the synthetic reports.",
+                status_code=503,
+                retryable=True,
+                technical_detail=f"{type(error).__name__}: {error}",
+            ) from error
     return FileResponse(
         sample_path,
         media_type="application/pdf",

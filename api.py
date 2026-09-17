@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from src.agents import MedicalAgentOrchestrator, OrchestratorRequest
 from src.api.labs import router as labs_router
 from src.config import (
+    BASE_DIR,
     CHROMA_COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
     KNOWLEDGE_DIR,
@@ -343,6 +344,18 @@ def _probe_timeline() -> dict[str, str]:
     return _health_status(ok, detail)
 
 
+def _probe_demo_data() -> dict[str, str]:
+    """The /sample/lab-report endpoint regenerates this file on demand if
+    missing, so this reports a shipped-fixture packaging problem for
+    visibility — it does not mean "Try synthetic data" is actually broken."""
+    sample_path = BASE_DIR / "data" / "samples" / "sample-lab-report.pdf"
+    if sample_path.exists():
+        return _health_status(True, "Synthetic lab report fixture present")
+    return _health_status(
+        True, "Fixture not shipped — will be generated on first demo request"
+    )
+
+
 @app.get("/api/health")
 def health() -> dict[str, object]:
     """Render-safe health: API + document processing stay up without Ollama."""
@@ -359,6 +372,7 @@ def health() -> dict[str, object]:
         "imaging_documents": _probe_imaging_documents(),
         "imaging_viewer": _probe_imaging_viewer(),
         "timeline": _probe_timeline(),
+        "demo_data": _probe_demo_data(),
         "ollama": _health_status(reachable, ollama_detail),
         "text_model": _model_status(MODEL_NAME, installed, reachable),
         "vision_model": _model_status(VISION_MODEL_NAME, installed, reachable),
@@ -449,6 +463,7 @@ def system_status() -> dict[str, object]:
                 "key": "processing_jobs",
                 **statuses["processing_jobs"],
             },
+            {"name": "Demo data", "key": "demo_data", **statuses["demo_data"]},
             {"name": "Ollama", "key": "ollama", **statuses["ollama"]},
             {"name": "Text model", "key": "text_model", **statuses["text_model"]},
             {"name": "Vision model", "key": "vision_model", **statuses["vision_model"]},
