@@ -1,4 +1,5 @@
 from src import retriever as retriever_module
+from src.config import RAG_MAX_DISTANCE
 from src.retriever import diversify_results
 
 
@@ -62,11 +63,16 @@ def test_relevant_chunks_are_returned(monkeypatch) -> None:
 
 
 def test_high_distance_chunks_are_filtered(monkeypatch) -> None:
+    # The "irrelevant" distance must actually exceed the configured cutoff.
+    # RAG_MAX_DISTANCE was deliberately loosened from 0.65 to 1.2 when RAG
+    # tuning was revisited (a5dc927), but this fixture's hardcoded 0.9 was
+    # left behind and silently stopped exceeding the real threshold —
+    # computing it from the live config keeps this test honest going forward.
     results = _make_results(
         ids=["c1", "c2"],
         documents=["Relevant passage.", "Irrelevant passage."],
         metadatas=[{"source_id": "doc-a"}, {"source_id": "doc-b"}],
-        distances=[0.2, 0.9],
+        distances=[0.2, RAG_MAX_DISTANCE + 0.1],
     )
 
     monkeypatch.setattr(

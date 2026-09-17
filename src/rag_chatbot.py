@@ -19,6 +19,7 @@ from src.citations import (
 from src.config import (
     MODEL_NAME,
     OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
     RAG_MAX_OUTPUT_TOKENS,
     RAG_MAX_PASSAGE_WORDS,
     TEMPERATURE,
@@ -284,7 +285,7 @@ def stream_rag_response(
         return
 
     messages = payload
-    client = Client(host=OLLAMA_HOST)
+    client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
     accumulated = ""
 
     try:
@@ -385,7 +386,7 @@ def stream_rag_events(
     yield {"type": "stage", "stage": "Writing a cited answer"}
 
     messages = payload
-    client = Client(host=OLLAMA_HOST)
+    client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
     accumulated = ""
 
     try:

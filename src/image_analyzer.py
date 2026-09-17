@@ -8,6 +8,7 @@ from ollama import Client, ResponseError
 
 from src.config import (
     OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
     VISION_MODEL_NAME,
 )
 from src.image_safety import check_image_request
@@ -88,7 +89,7 @@ def analyze_medical_document_image(
         f"User request: {question}"
     )
 
-    client = Client(host=OLLAMA_HOST)
+    client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
 
     try:
         response = client.chat(

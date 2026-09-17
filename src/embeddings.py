@@ -3,12 +3,13 @@ from ollama import Client
 from src.config import (
     EMBEDDING_MODEL_NAME,
     OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
 )
 
 
 class OllamaEmbeddingService:
     def __init__(self) -> None:
-        self.client = Client(host=OLLAMA_HOST)
+        self.client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
         self.model = EMBEDDING_MODEL_NAME
 
     def embed_documents(

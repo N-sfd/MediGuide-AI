@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from src.database.models import Document, DocumentPage, ExtractedField, LabObservation
+from src.database.models import (
+    Document,
+    DocumentPage,
+    ExtractedField,
+    LabObservation,
+    ProcessingJob,
+)
 from src.labs.normalization import (
     TRACKED_LAB_CODES,
     is_tracked_lab,
@@ -16,6 +22,15 @@ from src.labs.normalization import (
     parse_numeric_value,
     parse_reference_range,
 )
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now — datetime.utcnow() is deprecated, but SQLite (via
+    SQLAlchemy's DateTime(timezone=True)) round-trips datetimes as naive,
+    so comparing a stored value against an aware "now" would silently
+    apply the local UTC offset. Naive-UTC-vs-naive-UTC keeps job-timing
+    comparisons (see start_job_attempt, stuck_job_count) correct."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _parse_report_date(raw: str | None) -> date | None:
@@ -99,6 +114,139 @@ def _serialize_observation(item: LabObservation) -> dict[str, Any]:
             f"/api/documents/v2/{item.document_id}/pages/{item.page_number}/preview"
         ),
     }
+
+
+def create_uploaded_document(
+    session: Session,
+    *,
+    document_id: str,
+    filename: str,
+    content_type: str = "",
+    storage_path: str = "",
+) -> Document:
+    """Persists a Document row immediately on upload, before any extraction
+    has run, so a processing job always has a stable row to attach to."""
+    document = session.get(Document, document_id)
+    if document is None:
+        document = Document(id=document_id, filename=filename)
+        session.add(document)
+    document.filename = filename
+    document.content_type = content_type
+    document.storage_path = storage_path
+    document.status = "uploaded"
+    session.flush()
+    return document
+
+
+def set_document_status(session: Session, document_id: str, status: str) -> None:
+    document = session.get(Document, document_id)
+    if document is not None:
+        document.status = status
+        session.flush()
+
+
+def add_document_page(
+    session: Session,
+    *,
+    document_id: str,
+    page_number: int,
+    preview_path: str = "",
+    text_available: bool = False,
+) -> DocumentPage:
+    page = session.execute(
+        select(DocumentPage).where(
+            DocumentPage.document_id == document_id,
+            DocumentPage.page_number == page_number,
+        )
+    ).scalar_one_or_none()
+    if page is None:
+        page = DocumentPage(document_id=document_id, page_number=page_number)
+        session.add(page)
+    page.preview_path = preview_path
+    page.text_available = text_available
+    session.flush()
+    return page
+
+
+def set_document_page_count(session: Session, document_id: str, page_count: int) -> None:
+    document = session.get(Document, document_id)
+    if document is not None:
+        document.page_count = page_count
+        session.flush()
+
+
+def get_or_create_job(session: Session, *, document_id: str, job_type: str) -> ProcessingJob:
+    job = session.execute(
+        select(ProcessingJob).where(
+            ProcessingJob.document_id == document_id,
+            ProcessingJob.job_type == job_type,
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        job = ProcessingJob(document_id=document_id, job_type=job_type)
+        session.add(job)
+        session.flush()
+    return job
+
+
+def start_job_attempt(session: Session, job: ProcessingJob, *, processor_version: str) -> None:
+    """Begins (or retries) an attempt on an existing job row in place —
+    never inserts a second row for the same (document_id, job_type)."""
+    job.attempt_count += 1
+    job.status = "running"
+    job.stage = "validating"
+    job.started_at = _utcnow()
+    job.completed_at = None
+    job.error_code = ""
+    job.safe_error_message = ""
+    job.technical_error = ""
+    job.retryable = False
+    job.processor_version = processor_version
+    session.flush()
+
+
+def update_job_stage(session: Session, job: ProcessingJob, stage: str) -> None:
+    job.stage = stage
+    session.flush()
+
+
+def complete_job(session: Session, job: ProcessingJob) -> None:
+    job.status = "completed"
+    job.stage = "review_required"
+    job.completed_at = _utcnow()
+    session.flush()
+
+
+def fail_job(
+    session: Session,
+    job: ProcessingJob,
+    *,
+    error_code: str,
+    safe_message: str,
+    technical_detail: str,
+    retryable: bool,
+) -> None:
+    job.status = "failed"
+    job.completed_at = _utcnow()
+    job.error_code = error_code
+    job.safe_error_message = safe_message
+    job.technical_error = technical_detail
+    job.retryable = retryable
+    session.flush()
+
+
+def stuck_job_count(session: Session, *, stale_after_seconds: int) -> int:
+    """Jobs left in 'running' past a staleness threshold — usually a sign
+    the process was killed mid-extraction rather than failing cleanly."""
+    now = _utcnow()
+    rows = session.execute(
+        select(ProcessingJob).where(ProcessingJob.status == "running")
+    ).scalars().all()
+    return sum(
+        1
+        for job in rows
+        if job.started_at and (now - job.started_at).total_seconds() > stale_after_seconds
+    )
 
 
 def upsert_confirmed_document(

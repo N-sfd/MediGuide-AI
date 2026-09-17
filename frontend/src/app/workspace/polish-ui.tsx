@@ -54,15 +54,20 @@ export function ConfirmDialog({
 }) {
   const titleId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
     confirmRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previouslyFocused.current?.focus();
+    };
   }, [open, onCancel]);
 
   if (!open) return null;
@@ -182,6 +187,10 @@ export const FRIENDLY_HEALTH_LABELS: Record<string, string> = {
   n8n: "Document processing",
   document_processing: "Document processing",
   document_preview: "Document preview",
+  processing_jobs: "Processing jobs",
+  imaging_documents: "Imaging documents",
+  imaging_viewer: "Imaging viewer",
+  timeline: "Health Timeline",
 };
 
 export function friendlyHealthLabel(key: string, fallback?: string) {

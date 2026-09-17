@@ -58,6 +58,10 @@ class Document(Base):
         back_populates="document",
         cascade="all, delete-orphan",
     )
+    processing_jobs: Mapped[list[ProcessingJob]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
 
 
 class DocumentPage(Base):
@@ -122,6 +126,49 @@ class ExtractedField(Base):
     )
 
 
+class ProcessingJob(Base):
+    """Tracks one extraction attempt-history row per (document, job_type).
+
+    There is no background task queue in this app — processing still runs
+    inside the HTTP request/response cycle — so this table exists purely to
+    give retries a durable status/attempt/error record instead of losing
+    that information the moment the request ends. Retries update the same
+    row (attempt_count increments) rather than inserting a new one, so a
+    document never accumulates duplicate job rows.
+    """
+
+    __tablename__ = "processing_jobs"
+    __table_args__ = (
+        UniqueConstraint("document_id", "job_type", name="uq_document_job_type"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    job_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    stage: Mapped[str] = mapped_column(String(32), default="validating")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    safe_error_message: Mapped[str] = mapped_column(Text, default="")
+    technical_error: Mapped[str] = mapped_column(Text, default="")
+    retryable: Mapped[bool] = mapped_column(Boolean, default=False)
+    processor_version: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    document: Mapped[Document] = relationship(back_populates="processing_jobs")
+
+
 class LabObservation(Base):
     __tablename__ = "lab_observations"
 
@@ -155,3 +202,124 @@ class LabObservation(Base):
 
     document: Mapped[Document] = relationship(back_populates="lab_observations")
     field: Mapped[ExtractedField] = relationship(back_populates="lab_observation")
+
+
+class ImagingStudy(Base):
+    """An imaging study (X-Ray/CT/MRI/Ultrasound/PET-CT). Organizes and
+    displays imaging reports — never a diagnosis of the underlying scan."""
+
+    __tablename__ = "imaging_studies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    modality: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    body_region: Mapped[str] = mapped_column(String(128), default="")
+    study_description: Mapped[str] = mapped_column(String(256), default="")
+    study_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
+    institution: Mapped[str] = mapped_column(String(256), default="")
+    # Never rendered in normal UI — kept for institutional traceability only.
+    accession_identifier: Mapped[str] = mapped_column(String(128), default="")
+    report_document_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    series: Mapped[list[ImagingSeries]] = relationship(
+        back_populates="study",
+        cascade="all, delete-orphan",
+    )
+    sections: Mapped[list[ImagingReportSection]] = relationship(
+        back_populates="study",
+        cascade="all, delete-orphan",
+    )
+
+
+class ImagingSeries(Base):
+    """DICOM-shaped series metadata. Not populated without DICOM ingestion
+    (see src/imaging_dicom.py) — the table exists so that work is additive
+    rather than requiring a later migration."""
+
+    __tablename__ = "imaging_series"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    study_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("imaging_studies.id", ondelete="CASCADE"), index=True
+    )
+    series_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    description: Mapped[str] = mapped_column(String(256), default="")
+    image_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    modality: Mapped[str] = mapped_column(String(32), default="")
+
+    study: Mapped[ImagingStudy] = relationship(back_populates="series")
+
+
+class ImagingReportSection(Base):
+    """A section extracted from a radiology report (Exam/Findings/
+    Impression/...) — prose, not a measurement, so it is a distinct model
+    from ExtractedField rather than a reuse of the lab extraction schema."""
+
+    __tablename__ = "imaging_report_sections"
+    __table_args__ = (
+        UniqueConstraint("document_id", "section_type", name="uq_imaging_report_section"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    study_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("imaging_studies.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    section_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    section_text: Mapped[str] = mapped_column(Text, default="")
+    # Never overwritten on edit — same provenance discipline as ExtractedField.
+    original_text: Mapped[str] = mapped_column(Text, default="")
+    page_number: Mapped[int] = mapped_column(Integer, default=1)
+    source_text: Mapped[str] = mapped_column(Text, default="")
+    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    extractor_version: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    study: Mapped[ImagingStudy] = relationship(back_populates="sections")
+
+
+class MedicationRecord(Base):
+    """A confirmed medication entry — minimal, leaf persistence so
+    Medications can appear honestly in the Unified Health Timeline. No
+    foreign keys to anything else (mirrors Document standing alone). No
+    image/file persistence: the uploaded label image still only lives in
+    the temp session dir and expires — a historical record's detail view
+    is text-only, and that limitation is surfaced in the UI, not hidden."""
+
+    __tablename__ = "medication_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    medication_name: Mapped[str] = mapped_column(String(256), default="")
+    strength: Mapped[str] = mapped_column(String(128), default="")
+    form: Mapped[str] = mapped_column(String(128), default="")
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    quantity: Mapped[str] = mapped_column(String(128), default="")
+    prescriber_or_pharmacy: Mapped[str] = mapped_column(String(256), default="")
+    source: Mapped[str] = mapped_column(String(16), default="upload")
+    filename: Mapped[str] = mapped_column(String(512), default="")
+    other_visible_text: Mapped[str] = mapped_column(Text, default="")
+    confirmed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

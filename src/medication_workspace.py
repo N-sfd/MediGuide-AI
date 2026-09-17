@@ -15,10 +15,26 @@ from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from src.config import BASE_DIR, MAX_IMAGE_MB, MODEL_NAME, OLLAMA_HOST, VISION_MODEL_NAME
+from src.config import (
+    BASE_DIR,
+    MAX_IMAGE_MB,
+    MODEL_NAME,
+    OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
+    VISION_MODEL_NAME,
+)
+from src.database.medication_repository import (
+    create_medication_record,
+    get_medication_record,
+    serialize_medication_record,
+)
+from src.database.session import session_scope
 from src.document_intelligence import EvidenceSource, retrieve_approved_evidence
 from src.image_validator import validate_image_file
+from src.observability.logging import get_logger
 from src.safety import check_for_emergency
+
+logger = get_logger(__name__)
 
 
 def _ollama_client():
@@ -29,7 +45,7 @@ def _ollama_client():
             status_code=503,
             detail="The AI text/vision service is not installed on this deployment.",
         ) from error
-    return Client(host=OLLAMA_HOST)
+    return Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
 
 
 router = APIRouter(prefix="/api/medications/v2", tags=["Medication Workspace V2"])
@@ -401,7 +417,49 @@ async def confirm(medication_id: str, request: ConfirmRequest):
     state.confirmed = True
     state.status = "confirmed"
     _save_state(state)
+
+    # Best-effort, mirrors document_intelligence.py's confirm(): the
+    # session-based review/confirm flow must succeed even if the DB write
+    # fails. This is what lets a confirmed medication appear in the
+    # Unified Health Timeline after the session's temp files expire.
+    try:
+        values = {key: (by_key[key].value if key in by_key else "") for key in MED_FIELD_ORDER}
+        with session_scope() as session:
+            create_medication_record(
+                session,
+                medication_id=medication_id,
+                medication_name=values["medication_name"],
+                strength=values["strength"],
+                form=values["form"],
+                instructions=values["instructions"],
+                quantity=values["quantity"],
+                prescriber_or_pharmacy=values["prescriber_or_pharmacy"],
+                source=state.source,
+                filename=state.filename,
+                other_visible_text=state.other_visible_text,
+            )
+    except Exception as error:
+        logger.warning(
+            "medication_persist_failed",
+            extra={"medication_id": medication_id, "error_type": type(error).__name__},
+        )
+
     return {"medication_id": medication_id, "confirmed": True, "fields": state.fields}
+
+
+@router.get("/{medication_id}/record")
+async def get_medication_record_endpoint(medication_id: str) -> dict[str, Any]:
+    """Read-only, persisted view of a confirmed medication — powers the
+    Unified Health Timeline's "View medication" drawer independently of
+    the session-based upload/review flow (which expires)."""
+    with session_scope() as session:
+        record = get_medication_record(session, medication_id)
+        if record is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No confirmed medication record found for this id.",
+            )
+        return serialize_medication_record(record)
 
 
 def _confirmed_context(fields: list[MedicationField]) -> str:

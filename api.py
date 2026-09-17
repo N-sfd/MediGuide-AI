@@ -8,16 +8,19 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from src.agents import MedicalAgentOrchestrator, OrchestratorRequest
+from src.api.labs import router as labs_router
 from src.config import (
     CHROMA_COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
@@ -29,17 +32,27 @@ from src.config import (
     OLLAMA_HOST,
     PIPER_EXECUTABLE,
     SPEECH_OUTPUT_DIR,
+    TRANSLATION_MODEL_NAME,
     VECTOR_STORE_DIR,
     VISION_MODEL_NAME,
     WHISPER_MODEL_SIZE,
-    TRANSLATION_MODEL_NAME,
 )
+from src.database.repository import stuck_job_count
+from src.database.session import init_db, probe_database, session_scope
 from src.document_intelligence import router as document_intelligence_router
 from src.document_loader import load_metadata
+from src.health_timeline import probe_timeline
+from src.health_timeline import router as health_timeline_router
+from src.imaging import probe_imaging_documents, probe_imaging_viewer
+from src.imaging import router as imaging_router
 from src.medication_workspace import router as medication_workspace_router
-from src.api.labs import router as labs_router
-from src.database.session import init_db, probe_database
-from src.agents import MedicalAgentOrchestrator, OrchestratorRequest
+from src.observability.logging import (
+    configure_logging,
+    get_logger,
+    new_request_id,
+    set_request_id,
+)
+from src.shared.errors import install_error_handlers
 from src.tts import TextToSpeechError
 
 OLLAMA_PROBE_TIMEOUT = float(os.getenv("OLLAMA_PROBE_TIMEOUT", "2.5"))
@@ -106,6 +119,33 @@ app.add_middleware(
 app.include_router(document_intelligence_router)
 app.include_router(medication_workspace_router)
 app.include_router(labs_router)
+app.include_router(imaging_router)
+app.include_router(health_timeline_router)
+
+install_error_handlers(app)
+
+logger = get_logger(__name__)
+
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next):
+    incoming = request.headers.get("x-request-id", "").strip()
+    request_id = incoming or new_request_id()
+    set_request_id(request_id)
+    started = time.monotonic()
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = request_id
+    duration_ms = round((time.monotonic() - started) * 1000, 1)
+    logger.info(
+        "request_completed",
+        extra={
+            "path": request.url.path,
+            "method": request.method,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+        },
+    )
+    return response
 
 
 @app.get("/")
@@ -123,6 +163,7 @@ def root() -> dict[str, object]:
 
 @app.on_event("startup")
 def _startup() -> None:
+    configure_logging()
     try:
         init_db()
     except Exception:
@@ -253,6 +294,40 @@ def _probe_document_processing() -> dict[str, str]:
         return _health_status(False, f"Unavailable ({type(error).__name__})")
 
 
+PROCESSING_JOB_STALE_SECONDS = int(os.getenv("PROCESSING_JOB_STALE_SECONDS", "300"))
+
+
+def _probe_processing_jobs(db_ok: bool) -> dict[str, str]:
+    if not db_ok:
+        return _health_status(False, "Job tracking needs the database")
+    try:
+        with session_scope() as session:
+            stuck = stuck_job_count(session, stale_after_seconds=PROCESSING_JOB_STALE_SECONDS)
+    except Exception as error:
+        return _health_status(False, f"Unreadable ({type(error).__name__})")
+
+    if stuck:
+        return _health_status(
+            False, f"{stuck} job(s) stuck in 'running' past {PROCESSING_JOB_STALE_SECONDS}s"
+        )
+    return _health_status(True, "No stuck processing jobs")
+
+
+def _probe_imaging_documents() -> dict[str, str]:
+    ok, detail = probe_imaging_documents()
+    return _health_status(ok, detail)
+
+
+def _probe_imaging_viewer() -> dict[str, str]:
+    ok, detail = probe_imaging_viewer()
+    return _health_status(ok, detail)
+
+
+def _probe_timeline() -> dict[str, str]:
+    ok, detail = probe_timeline()
+    return _health_status(ok, detail)
+
+
 @app.get("/api/health")
 def health() -> dict[str, object]:
     """Render-safe health: API + document processing stay up without Ollama."""
@@ -265,6 +340,10 @@ def health() -> dict[str, object]:
     statuses = {
         "fastapi": _health_status(True, "API is responding"),
         "document_processing": document_processing,
+        "processing_jobs": _probe_processing_jobs(db_ok),
+        "imaging_documents": _probe_imaging_documents(),
+        "imaging_viewer": _probe_imaging_viewer(),
+        "timeline": _probe_timeline(),
         "ollama": _health_status(reachable, ollama_detail),
         "text_model": _model_status(MODEL_NAME, installed, reachable),
         "vision_model": _model_status(VISION_MODEL_NAME, installed, reachable),
@@ -334,6 +413,26 @@ def system_status() -> dict[str, object]:
                 "name": "Document processing",
                 "key": "document_processing",
                 **statuses["document_processing"],
+            },
+            {
+                "name": "Imaging documents",
+                "key": "imaging_documents",
+                **statuses["imaging_documents"],
+            },
+            {
+                "name": "Imaging viewer",
+                "key": "imaging_viewer",
+                **statuses["imaging_viewer"],
+            },
+            {
+                "name": "Health Timeline",
+                "key": "timeline",
+                **statuses["timeline"],
+            },
+            {
+                "name": "Processing jobs",
+                "key": "processing_jobs",
+                **statuses["processing_jobs"],
             },
             {"name": "Ollama", "key": "ollama", **statuses["ollama"]},
             {"name": "Text model", "key": "text_model", **statuses["text_model"]},

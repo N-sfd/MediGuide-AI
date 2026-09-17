@@ -1,0 +1,659 @@
+"""Imaging workspace: study organization + radiology-report intelligence.
+
+MediGuide Imaging organizes imaging studies, extracts and displays the TEXT
+of radiology reports, compares report wording over time, and explains
+imaging terminology from approved sources. It never interprets pixels: no
+endpoint in this module diagnoses, scores, or classifies the underlying
+scan image — only the report text a radiologist already wrote.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import uuid
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+import pymupdf
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from PIL import Image
+from pydantic import BaseModel
+
+from src.config import (
+    BASE_DIR,
+    MODEL_NAME,
+    OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
+    PROCESSING_RETRY_ATTEMPTS,
+    PROCESSING_RETRY_BACKOFF_SECONDS,
+    VISION_MODEL_NAME,
+)
+from src.database.imaging_repository import (
+    confirm_report_sections,
+    create_study,
+    delete_study,
+    get_report_sections,
+    get_study,
+    list_studies,
+    modality_summary,
+    serialize_section,
+    serialize_study,
+    set_study_report_document,
+    set_study_verification_status,
+    upsert_report_sections,
+)
+from src.database.repository import (
+    add_document_page,
+    create_uploaded_document,
+    set_document_page_count,
+)
+from src.database.session import probe_database, session_scope
+from src.document_intelligence import retrieve_approved_evidence
+from src.image_validator import validate_image_file
+from src.imaging_compare import compare_section_text
+from src.imaging_dicom import is_dicom_file
+from src.imaging_sections import SECTION_TYPES, split_report_sections
+from src.observability.logging import get_logger
+from src.shared.errors import MediGuideError
+from src.shared.job_runner import run_extraction_job
+from src.shared.resilience import (
+    PermanentProcessingError,
+    TransientProcessingError,
+    call_with_retry,
+)
+
+logger = get_logger(__name__)
+
+router = APIRouter(prefix="/api/imaging", tags=["Imaging"])
+
+MODALITY_LABELS: dict[str, str] = {
+    "xray": "X-Ray",
+    "ct": "CT",
+    "mri": "MRI",
+    "ultrasound": "Ultrasound",
+    "pet_ct": "PET/CT",
+}
+
+SUPPORTED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
+
+TEMP_DIR = Path(os.getenv("IMAGING_TEMP_DIR", str(BASE_DIR / "outputs" / "imaging")))
+MAX_MB = int(os.getenv("IMAGING_MAX_MB", "20"))
+MAX_PAGES = int(os.getenv("IMAGING_MAX_PAGES", "25"))
+RENDER_DPI = int(os.getenv("IMAGING_RENDER_DPI", "140"))
+PROCESSOR_VERSION = "imaging-sections-v1"
+
+
+# --------------------------------------------------------------------------
+# Request/response schemas
+# --------------------------------------------------------------------------
+
+
+class StudyCreateRequest(BaseModel):
+    modality: str
+    body_region: str = ""
+    study_description: str = ""
+    study_date: str | None = None
+    institution: str = ""
+    accession_identifier: str = ""
+
+
+class SectionEdit(BaseModel):
+    section_type: str
+    text: str
+
+
+class ConfirmSectionsRequest(BaseModel):
+    sections: list[SectionEdit] = []
+    reviewed: bool = False
+
+
+class CompareRequest(BaseModel):
+    document_id_a: str
+    document_id_b: str
+
+
+class TerminologyRequest(BaseModel):
+    term: str
+    modality: str | None = None
+
+
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+
+
+def _parse_date(raw: str | None) -> date | None:
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _parse_json(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    cleaned = cleaned.removesuffix("```")
+    return json.loads(cleaned.strip())
+
+
+IMAGING_SECTION_PROMPT = """
+You are MediGuide's radiology-report reading assistant. Do not diagnose or
+interpret images. Extract ONLY the verbatim text already present in this
+report page, organized under these section names if present: exam,
+clinical_history, technique, comparison, findings, impression,
+recommendations.
+
+Return JSON only:
+{"sections": {"exam": "", "clinical_history": "", "technique": "", "comparison": "", "findings": "", "impression": "", "recommendations": ""}}
+
+Rules:
+- Use an empty string for any section not present on this page.
+- Copy text exactly as printed. Never summarize, infer, or add content.
+- Never invent diagnostic language.
+"""
+
+
+def _extract_sections_via_vision(image_path: Path) -> dict[str, str]:
+    try:
+        from ollama import Client
+    except ImportError as error:
+        raise PermanentProcessingError(
+            "Vision OCR is unavailable on this deployment. Upload a digital PDF with selectable text.",
+            technical_detail=f"{type(error).__name__}: {error}",
+        ) from error
+
+    def _call() -> Any:
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
+        return client.chat(
+            model=VISION_MODEL_NAME,
+            messages=[{
+                "role": "user",
+                "content": IMAGING_SECTION_PROMPT,
+                "images": [str(image_path)],
+            }],
+            options={"temperature": 0.0},
+        )
+
+    try:
+        response = call_with_retry(
+            _call,
+            attempts=PROCESSING_RETRY_ATTEMPTS,
+            backoff_base=PROCESSING_RETRY_BACKOFF_SECONDS,
+        )
+    except TransientProcessingError:
+        raise
+    except Exception as error:
+        raise PermanentProcessingError(
+            f"Vision OCR could not read this report ({type(error).__name__}).",
+            technical_detail=f"{type(error).__name__}: {error}",
+        ) from error
+
+    data = _parse_json(response.message.content)
+    raw_sections = data.get("sections", {})
+    if not isinstance(raw_sections, dict):
+        return {}
+    return {
+        key: str(value).strip()
+        for key, value in raw_sections.items()
+        if key in SECTION_TYPES and str(value).strip()
+    }
+
+
+def _render_pages_and_native_text(
+    pdf_path: Path, pages_dir: Path
+) -> tuple[list[tuple[int, str]], int]:
+    try:
+        doc = pymupdf.open(pdf_path)
+    except Exception as error:
+        raise PermanentProcessingError(
+            "Invalid report PDF.", technical_detail=f"{type(error).__name__}: {error}"
+        ) from error
+
+    try:
+        if doc.page_count < 1:
+            raise PermanentProcessingError("Report PDF has no pages.")
+        if doc.page_count > MAX_PAGES:
+            raise PermanentProcessingError(f"Maximum {MAX_PAGES} pages.")
+
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        results: list[tuple[int, str]] = []
+        for index, page in enumerate(doc):
+            page_number = index + 1
+            text = page.get_text("text", sort=True).strip()
+            preview = pages_dir / f"page-{page_number}.png"
+            page.get_pixmap(dpi=RENDER_DPI, alpha=False).save(str(preview))
+            results.append((page_number, text))
+        return results, doc.page_count
+    finally:
+        doc.close()
+
+
+async def _save_report_upload(file: UploadFile, document_id: str, suffix: str) -> Path:
+    folder = TEMP_DIR / document_id
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"report{suffix}"
+    max_bytes = MAX_MB * 1024 * 1024
+    total = 0
+
+    with target.open("wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            total += len(chunk)
+            if total > max_bytes:
+                raise MediGuideError(
+                    "FILE_TOO_LARGE", f"File exceeds {MAX_MB} MB.", status_code=413
+                )
+            out.write(chunk)
+
+    if not total:
+        raise MediGuideError("EMPTY_FILE", "The uploaded file was empty.", status_code=422)
+
+    if suffix == ".pdf" and not target.read_bytes()[:5].startswith(b"%PDF"):
+        target.unlink(missing_ok=True)
+        raise MediGuideError("INVALID_PDF", "File is not a valid PDF.", status_code=422)
+
+    return target
+
+
+# --------------------------------------------------------------------------
+# Study endpoints
+# --------------------------------------------------------------------------
+
+
+@router.get("/modalities")
+async def list_modalities() -> dict[str, Any]:
+    with session_scope() as session:
+        summary = {row["modality"]: row for row in modality_summary(session)}
+    return {
+        "modalities": [
+            {
+                "modality": code,
+                "label": label,
+                "study_count": summary.get(code, {}).get("study_count", 0),
+                "latest_study_date": summary.get(code, {}).get("latest_study_date"),
+            }
+            for code, label in MODALITY_LABELS.items()
+        ]
+    }
+
+
+@router.post("/studies")
+async def create_study_endpoint(request: StudyCreateRequest) -> dict[str, Any]:
+    if request.modality not in MODALITY_LABELS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown modality '{request.modality}'. Expected one of: {', '.join(MODALITY_LABELS)}.",
+        )
+    with session_scope() as session:
+        study = create_study(
+            session,
+            modality=request.modality,
+            body_region=request.body_region,
+            study_description=request.study_description,
+            study_date=_parse_date(request.study_date),
+            institution=request.institution,
+            accession_identifier=request.accession_identifier,
+        )
+        return serialize_study(study)
+
+
+@router.get("/studies")
+async def list_studies_endpoint(
+    modality: str | None = None,
+    body_region: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    with session_scope() as session:
+        studies = list_studies(
+            session,
+            modality=modality,
+            body_region=body_region,
+            date_from=_parse_date(date_from),
+            date_to=_parse_date(date_to),
+        )
+        return {"studies": [serialize_study(study) for study in studies]}
+
+
+@router.get("/studies/{study_id}")
+async def get_study_endpoint(study_id: str) -> dict[str, Any]:
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+        return serialize_study(study)
+
+
+@router.delete("/studies/{study_id}")
+async def delete_study_endpoint(study_id: str) -> dict[str, Any]:
+    with session_scope() as session:
+        deleted = delete_study(session, study_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Imaging study not found.")
+    return {"deleted": True}
+
+
+# --------------------------------------------------------------------------
+# Report attach / extract / confirm
+# --------------------------------------------------------------------------
+
+
+@router.post("/studies/{study_id}/report")
+async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+
+    filename = file.filename or ""
+    suffix = Path(filename).suffix.lower()
+
+    if is_dicom_file(Path(filename)):
+        raise MediGuideError(
+            "DICOM_NOT_YET_SUPPORTED",
+            "DICOM files aren't processed yet — upload the report as a PDF or image for now.",
+            status_code=415,
+            retryable=False,
+        )
+    if suffix not in SUPPORTED_SUFFIXES:
+        raise MediGuideError(
+            "UNSUPPORTED_FILE_TYPE",
+            f"Unsupported file type '{suffix or 'unknown'}'. Accepted: {', '.join(sorted(SUPPORTED_SUFFIXES))}.",
+            status_code=415,
+        )
+
+    document_id = uuid.uuid4().hex
+    folder = TEMP_DIR / document_id
+    pages_dir = folder / "pages"
+
+    try:
+        saved_path = await _save_report_upload(file, document_id, suffix)
+    except MediGuideError:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+
+    with session_scope() as session:
+        create_uploaded_document(
+            session,
+            document_id=document_id,
+            filename=filename or f"report{suffix}",
+            content_type=file.content_type or "",
+            storage_path=str(folder),
+        )
+
+    def work(set_stage) -> dict[str, str]:
+        set_stage("reading")
+
+        if suffix == ".pdf":
+            page_texts, page_count = _render_pages_and_native_text(saved_path, pages_dir)
+        else:
+            validation = validate_image_file(str(saved_path))
+            if not validation.valid or not validation.path:
+                raise PermanentProcessingError(validation.error or "Invalid image.")
+            pages_dir.mkdir(parents=True, exist_ok=True)
+            preview = pages_dir / "page-1.png"
+            with Image.open(validation.path) as image:
+                image.convert("RGB").save(preview, format="PNG")
+            page_texts = [(1, "")]
+            page_count = 1
+
+        set_stage("extracting")
+        collected: dict[str, str] = {}
+        source_page = 1
+        for page_number, text in page_texts:
+            native_sections = split_report_sections(text)
+            if native_sections:
+                for key, value in native_sections.items():
+                    collected.setdefault(key, value)
+                source_page = page_number
+                continue
+
+            preview_path = pages_dir / f"page-{page_number}.png"
+            try:
+                vision_sections = _extract_sections_via_vision(preview_path)
+            except PermanentProcessingError:
+                vision_sections = {}
+            if vision_sections:
+                for key, value in vision_sections.items():
+                    collected.setdefault(key, value)
+                source_page = page_number
+
+        set_stage("saving")
+        with session_scope() as session:
+            for page_number, text in page_texts:
+                add_document_page(
+                    session,
+                    document_id=document_id,
+                    page_number=page_number,
+                    preview_path=f"/api/imaging/studies/{study_id}/report/pages/{page_number}/preview",
+                    text_available=bool(text),
+                )
+            set_document_page_count(session, document_id, page_count)
+            upsert_report_sections(
+                session,
+                study_id=study_id,
+                document_id=document_id,
+                sections=collected,
+                page_number=source_page,
+                extractor_version=PROCESSOR_VERSION,
+            )
+            set_study_report_document(session, study_id, document_id)
+
+        return collected
+
+    sections = run_extraction_job(
+        document_id=document_id, job_type="imaging_report_extraction", work=work
+    )
+    return {"document_id": document_id, "sections": sections}
+
+
+@router.get("/studies/{study_id}/report/sections")
+async def get_sections_endpoint(study_id: str) -> dict[str, Any]:
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+        if not study.report_document_id:
+            return {"sections": []}
+        sections = get_report_sections(session, study.report_document_id)
+        return {"sections": [serialize_section(section) for section in sections]}
+
+
+@router.post("/studies/{study_id}/report/confirm")
+async def confirm_sections_endpoint(
+    study_id: str, request: ConfirmSectionsRequest
+) -> dict[str, Any]:
+    if not request.reviewed:
+        raise HTTPException(
+            status_code=400, detail="Review the extracted report sections before confirming."
+        )
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+        if not study.report_document_id:
+            raise HTTPException(status_code=409, detail="No report attached to this study yet.")
+
+        edits = {item.section_type: item.text for item in request.sections}
+        rows = confirm_report_sections(
+            session, document_id=study.report_document_id, edits=edits
+        )
+        set_study_verification_status(session, study_id, "verified")
+        return {
+            "sections": [serialize_section(row) for row in rows],
+            "verification_status": "verified",
+        }
+
+
+@router.get("/studies/{study_id}/report/pages/{page_number}/preview")
+async def report_page_preview(study_id: str, page_number: int):
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None or not study.report_document_id:
+            raise HTTPException(status_code=404, detail="No report attached to this study.")
+        document_id = study.report_document_id
+
+    path = TEMP_DIR / document_id / "pages" / f"page-{page_number}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Page preview not found.")
+    return FileResponse(path, media_type="image/png")
+
+
+# --------------------------------------------------------------------------
+# Compare + terminology
+# --------------------------------------------------------------------------
+
+
+@router.post("/compare")
+async def compare_reports(request: CompareRequest) -> dict[str, Any]:
+    with session_scope() as session:
+        sections_a = {
+            section.section_type: section
+            for section in get_report_sections(session, request.document_id_a)
+            if section.verification_status == "confirmed"
+        }
+        sections_b = {
+            section.section_type: section
+            for section in get_report_sections(session, request.document_id_b)
+            if section.verification_status == "confirmed"
+        }
+
+    if not sections_a or not sections_b:
+        raise MediGuideError(
+            "REPORTS_NOT_VERIFIED",
+            "Both reports must be reviewed and confirmed before they can be compared.",
+            status_code=409,
+        )
+
+    comparisons = []
+    for section_type in SECTION_TYPES:
+        earlier = sections_a.get(section_type)
+        later = sections_b.get(section_type)
+        if earlier is None and later is None:
+            continue
+        diff = compare_section_text(
+            earlier.section_text if earlier else "", later.section_text if later else ""
+        )
+        comparisons.append({
+            "section_type": section_type,
+            "earlier": {
+                "text": earlier.section_text if earlier else "",
+                "document_id": request.document_id_a,
+                "page_number": earlier.page_number if earlier else None,
+            },
+            "later": {
+                "text": later.section_text if later else "",
+                "document_id": request.document_id_b,
+                "page_number": later.page_number if later else None,
+            },
+            **diff,
+        })
+
+    return {"comparisons": comparisons}
+
+
+IMAGING_TERM_PROMPT = """
+Provide a brief, general, plain-language educational explanation of the
+medical imaging term below. This is general education only — it is not
+about any specific patient's results, and it must not diagnose or interpret
+an individual's imaging.
+
+Term: {term}
+{modality_context}
+
+Use only the approved evidence supplied below. If the evidence does not
+clearly define this term, say so plainly rather than guessing.
+
+APPROVED EVIDENCE
+{evidence}
+"""
+
+
+@router.post("/terminology/explain")
+async def explain_terminology(request: TerminologyRequest) -> dict[str, Any]:
+    term = request.term.strip()
+    if not term:
+        raise HTTPException(status_code=422, detail="A term is required.")
+
+    evidence = retrieve_approved_evidence(term, top_k=5)
+
+    if not evidence:
+        return {
+            "term": term,
+            "answer_markdown": (
+                "MediGuide could not find enough approved educational information "
+                "to explain this term."
+            ),
+            "sources": [],
+        }
+
+    sources = []
+    source_lines = []
+    for index, item in enumerate(evidence, 1):
+        sources.append({
+            "citation_number": index,
+            "title": item.get("title", "Untitled source"),
+            "publisher": item.get("publisher", "Unknown publisher"),
+            "source_url": item.get("source_url", ""),
+            "passage": item.get("passage", ""),
+        })
+        source_lines.append(f"[{index}] {item.get('title', '')} — {item.get('passage', '')}")
+
+    modality_context = (
+        f"Context: this term appears in a {MODALITY_LABELS.get(request.modality, request.modality)} report."
+        if request.modality
+        else ""
+    )
+    prompt = IMAGING_TERM_PROMPT.format(
+        term=term, modality_context=modality_context, evidence="\n".join(source_lines)
+    )
+
+    try:
+        from ollama import Client
+
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
+        response = client.chat(
+            model=MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "General educational information only. Use only the supplied approved evidence.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            options={"temperature": 0.1},
+        )
+        answer = response.message.content.strip()
+    except Exception:
+        answer = "The educational explanation model is unavailable on this deployment."
+
+    return {"term": term, "answer_markdown": answer, "sources": sources}
+
+
+def probe_imaging_documents() -> tuple[bool, str]:
+    db_ok, db_detail = probe_database()
+    if not db_ok:
+        return False, db_detail
+    try:
+        with session_scope() as session:
+            modality_summary(session)
+        return True, "Imaging studies reachable"
+    except Exception as error:
+        return False, f"Unreadable ({type(error).__name__})"
+
+
+def probe_imaging_viewer() -> tuple[bool, str]:
+    try:
+        import pymupdf  # noqa: F401
+
+        return True, "Report page preview rendering available"
+    except Exception as error:
+        return False, f"Unavailable ({type(error).__name__})"

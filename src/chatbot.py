@@ -6,6 +6,7 @@ from src.config import (
     MAX_HISTORY_MESSAGES,
     MODEL_NAME,
     OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
     TEMPERATURE,
 )
 from src.prompts import MEDICAL_SYSTEM_PROMPT
@@ -72,7 +73,7 @@ def generate_response(
         {"role": "user", "content": clean_message},
     ]
 
-    client = Client(host=OLLAMA_HOST)
+    client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
 
     try:
         response = client.chat(

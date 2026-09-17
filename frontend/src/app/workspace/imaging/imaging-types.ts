@@ -1,0 +1,132 @@
+export type Modality = "xray" | "ct" | "mri" | "ultrasound" | "pet_ct";
+
+export const MODALITY_ORDER: Modality[] = ["xray", "ct", "mri", "ultrasound", "pet_ct"];
+
+export const MODALITY_LABELS: Record<Modality, string> = {
+  xray: "X-Ray",
+  ct: "CT",
+  mri: "MRI",
+  ultrasound: "Ultrasound",
+  pet_ct: "PET/CT",
+};
+
+export const SECTION_LABELS: Record<string, string> = {
+  exam: "Exam",
+  clinical_history: "Clinical History",
+  technique: "Technique",
+  comparison: "Comparison",
+  findings: "Findings",
+  impression: "Impression",
+  recommendations: "Recommendations",
+};
+
+export const SECTION_ORDER = Object.keys(SECTION_LABELS);
+
+export interface ModalitySummary {
+  modality: Modality;
+  label: string;
+  study_count: number;
+  latest_study_date: string | null;
+}
+
+export interface ImagingStudy {
+  study_id: string;
+  modality: Modality;
+  body_region: string;
+  study_description: string;
+  study_date: string | null;
+  institution: string;
+  report_document_id: string | null;
+  verification_status: "unverified" | "verified";
+  created_at: string;
+}
+
+export interface ReportSection {
+  section_id: string;
+  study_id: string;
+  document_id: string;
+  section_type: string;
+  section_text: string;
+  original_text: string;
+  page_number: number;
+  source_text: string;
+  verification_status: "unverified" | "confirmed";
+}
+
+export interface CompareSide {
+  text: string;
+  document_id: string;
+  page_number: number | null;
+}
+
+export interface CompareBucket {
+  section_type: string;
+  earlier: CompareSide;
+  later: CompareSide;
+  present_in_both: string[];
+  newly_mentioned: string[];
+  no_longer_mentioned: string[];
+}
+
+export interface TermExplanation {
+  text: string;
+  sourceExcerpt: string;
+  sources: { title: string; publisher: string }[];
+}
+
+export type ImagingView = "landing" | "list" | "detail" | "history" | "compare";
+
+/**
+ * Every input here is real, already-persisted backend state (the study's
+ * report_document_id + its sections' verification_status) — the only
+ * exception is `transientStatus`, which reflects an upload request actually
+ * in flight (or having just failed) in *this* browser session. There is no
+ * backend "processing"/"failed" column to read instead: the upload
+ * endpoint is a single combined call with no separate status-polling
+ * endpoint, so those two states can only ever be client-visible request
+ * state, never fabricated persisted state.
+ */
+export type ReportState =
+  | "no_report"
+  | "processing"
+  | "review_required"
+  | "partially_verified"
+  | "verified"
+  | "failed";
+
+export function deriveReportState(
+  study: ImagingStudy,
+  sections: ReportSection[],
+  transientStatus: "processing" | "failed" | null,
+): ReportState {
+  if (transientStatus) return transientStatus;
+  if (!study.report_document_id) return "no_report";
+  if (study.verification_status === "verified") return "verified";
+  if (sections.length === 0) return "review_required";
+  const confirmedCount = sections.filter((s) => s.verification_status === "confirmed").length;
+  if (confirmedCount === 0) return "review_required";
+  if (confirmedCount < sections.length) return "partially_verified";
+  return "review_required";
+}
+
+export const REPORT_STATE_LABELS: Record<ReportState, string> = {
+  no_report: "No report",
+  processing: "Processing",
+  review_required: "Review required",
+  partially_verified: "Partially verified",
+  verified: "Verified",
+  failed: "Processing failed",
+};
+
+export function formatStudyDate(value: string | null): string {
+  if (!value) return "Undated";
+  try {
+    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}

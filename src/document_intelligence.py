@@ -8,6 +8,7 @@ import shutil
 import time
 import uuid
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Literal
 
 import pymupdf
@@ -21,12 +22,26 @@ from src.config import (
     MAX_IMAGE_MB,
     MODEL_NAME,
     OLLAMA_HOST,
+    OLLAMA_TIMEOUT_SECONDS,
+    PROCESSING_RETRY_ATTEMPTS,
+    PROCESSING_RETRY_BACKOFF_SECONDS,
     RAG_MAX_PASSAGE_WORDS,
     VISION_MODEL_NAME,
 )
+from src.database.repository import create_uploaded_document
+from src.database.session import session_scope
 from src.image_validator import validate_image_file
 from src.labs.service import create_observations_from_document
+from src.observability.logging import get_logger
 from src.safety import check_for_emergency
+from src.shared.job_runner import run_extraction_job
+from src.shared.resilience import (
+    PermanentProcessingError,
+    TransientProcessingError,
+    call_with_retry,
+)
+
+logger = get_logger(__name__)
 
 
 router = APIRouter(prefix="/api/documents/v2", tags=["Document Intelligence V2"])
@@ -312,14 +327,14 @@ def _extract_page_fields(
     try:
         from ollama import Client
     except ImportError as error:
-        raise HTTPException(
-            status_code=503,
-            detail="Vision OCR is unavailable on this deployment. Upload a digital PDF with selectable text.",
+        raise PermanentProcessingError(
+            "Vision OCR is unavailable on this deployment. Upload a digital PDF with selectable text.",
+            technical_detail=f"{type(error).__name__}: {error}",
         ) from error
 
-    try:
-        client = Client(host=OLLAMA_HOST)
-        response = client.chat(
+    def _call() -> Any:
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
+        return client.chat(
             model=VISION_MODEL,
             messages=[{
                 "role": "user",
@@ -329,10 +344,19 @@ def _extract_page_fields(
             }],
             options={"temperature": 0.0},
         )
+
+    try:
+        response = call_with_retry(
+            _call,
+            attempts=PROCESSING_RETRY_ATTEMPTS,
+            backoff_base=PROCESSING_RETRY_BACKOFF_SECONDS,
+        )
+    except TransientProcessingError:
+        raise
     except Exception as error:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Vision OCR is unavailable ({type(error).__name__}). Use a digital PDF with selectable text.",
+        raise PermanentProcessingError(
+            f"Vision OCR could not read this page ({type(error).__name__}).",
+            technical_detail=f"{type(error).__name__}: {error}",
         ) from error
 
     data = _parse_json(response.message.content)
@@ -577,20 +601,25 @@ def _process_saved_pdf(
     pdf_path: Path,
     pages_dir: Path,
     document_id: str,
+    set_stage: Callable[[str], None] = lambda stage: None,
 ) -> tuple[list[PageInfo], list[ExtractedField]]:
     try:
         doc = pymupdf.open(pdf_path)
     except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid PDF.") from e
+        raise PermanentProcessingError(
+            "Invalid PDF.", technical_detail=f"{type(e).__name__}: {e}"
+        ) from e
 
     try:
         if doc.page_count < 1:
-            raise HTTPException(status_code=400, detail="PDF has no pages.")
+            raise PermanentProcessingError("PDF has no pages.")
         if doc.page_count > MAX_PAGES:
-            raise HTTPException(status_code=400, detail=f"Maximum {MAX_PAGES} pages.")
+            raise PermanentProcessingError(f"Maximum {MAX_PAGES} pages.")
 
         pages: list[PageInfo] = []
         fields: list[ExtractedField] = []
+
+        set_stage("reading")
 
         for i, page in enumerate(doc):
             n = i + 1
@@ -603,10 +632,15 @@ def _process_saved_pdf(
             if native_fields:
                 page_fields = native_fields
             else:
-                # Step 2: Vision model only for scanned/unparsed pages
+                # Step 2: Vision model only for scanned/unparsed pages. A
+                # transient failure (Ollama unreachable/timeout) propagates
+                # so the whole job can be retried; a permanent per-page
+                # failure just leaves that page's fields empty, matching
+                # the existing "could_not_read" degrade-gracefully design.
+                set_stage("extracting")
                 try:
                     page_fields = _extract_page_fields(preview, n, text)
-                except Exception:
+                except PermanentProcessingError:
                     page_fields = []
 
             fields.extend(page_fields)
@@ -627,11 +661,13 @@ def _process_saved_image(
     suffix: str,
     pages_dir: Path,
     document_id: str,
+    set_stage: Callable[[str], None] = lambda stage: None,
 ) -> tuple[list[PageInfo], list[ExtractedField]]:
+    set_stage("reading")
     validation = validate_image_file(str(raw_path))
 
     if not validation.valid or not validation.path:
-        raise HTTPException(status_code=422, detail=validation.error)
+        raise PermanentProcessingError(validation.error or "Invalid image.")
 
     preview = pages_dir / "page-1.png"
 
@@ -639,6 +675,7 @@ def _process_saved_image(
         image.convert("RGB").save(preview, format="PNG")
 
     raw_path.unlink(missing_ok=True)
+    set_stage("extracting")
     page_fields = _extract_page_fields(preview, 1, "")
 
     pages = [
@@ -767,6 +804,26 @@ async def upload(file: UploadFile = File(...)) -> UploadResponse:
             file_size=file_size,
         )
         _save_state(state)
+
+        # Best-effort: persist the Document row immediately so upload success
+        # never depends on AI processing, and a processing job always has a
+        # stable row to attach to. Loss of this write only costs job/retry
+        # visibility, not the upload or the review session (JSON state.json).
+        try:
+            with session_scope() as session:
+                create_uploaded_document(
+                    session,
+                    document_id=document_id,
+                    filename=state.filename,
+                    content_type=state.content_type,
+                    storage_path=str(folder),
+                )
+        except Exception as db_error:
+            logger.warning(
+                "document_persist_failed",
+                extra={"document_id": document_id, "error_type": type(db_error).__name__},
+            )
+
         return UploadResponse(
             document_id=document_id,
             filename=state.filename,
@@ -813,22 +870,25 @@ async def process_document(document_id: str) -> DocumentState:
     state.status = "extracting"
     _save_state(state)
 
-    try:
+    def _run(set_stage: Callable[[str], None]) -> tuple[list[PageInfo], list[ExtractedField]]:
+        set_stage("validating")
         pdf_path = folder / "document.pdf"
         if pdf_path.exists():
-            pages, fields = _process_saved_pdf(pdf_path, pages_dir, document_id)
-        else:
-            upload_files = list(pages_dir.glob("upload.*"))
-            if not upload_files:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Uploaded file not found for this document.",
-                )
-            raw_path = upload_files[0]
-            suffix = raw_path.suffix.lower()
-            pages, fields = _process_saved_image(
-                raw_path, suffix, pages_dir, document_id
-            )
+            return _process_saved_pdf(pdf_path, pages_dir, document_id, set_stage)
+
+        upload_files = list(pages_dir.glob("upload.*"))
+        if not upload_files:
+            raise PermanentProcessingError("Uploaded file not found for this document.")
+        raw_path = upload_files[0]
+        suffix = raw_path.suffix.lower()
+        return _process_saved_image(raw_path, suffix, pages_dir, document_id, set_stage)
+
+    try:
+        pages, fields = run_extraction_job(
+            document_id=document_id,
+            job_type="document_extraction",
+            work=_run,
+        )
 
         state = DocumentState(
             document_id=document_id,
@@ -844,17 +904,10 @@ async def process_document(document_id: str) -> DocumentState:
         _save_state(state)
         return state
 
-    except HTTPException:
+    except Exception:
         failed = state.model_copy(update={"status": "failed"})
         _save_state(failed)
         raise
-    except Exception as e:
-        failed = state.model_copy(update={"status": "failed"})
-        _save_state(failed)
-        raise HTTPException(
-            status_code=500,
-            detail=f"MediGuide could not read this document: {type(e).__name__}",
-        ) from e
 
 
 @router.post("/upload-and-process", response_model=DocumentState, include_in_schema=False)
@@ -1032,7 +1085,7 @@ Include:
     try:
         from ollama import Client
 
-        client = Client(host=OLLAMA_HOST)
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
         response = client.chat(
             model=TEXT_MODEL,
             messages=[

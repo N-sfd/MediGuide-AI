@@ -135,6 +135,32 @@ TTS_TIMEOUT_SECONDS = int(
     )
 )
 
+# Every direct Ollama call must bound how long it can hang — a deployed
+# server often points OLLAMA_HOST at a localhost address with nothing
+# listening, so without a timeout these calls hang until the client gives up.
+OLLAMA_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "OLLAMA_TIMEOUT_SECONDS",
+        "20",
+    )
+)
+
+# Bounded retry for transient (connection/timeout) Ollama failures during
+# document/medication extraction. Permanent failures are never retried.
+PROCESSING_RETRY_ATTEMPTS = int(
+    os.getenv(
+        "PROCESSING_RETRY_ATTEMPTS",
+        "3",
+    )
+)
+
+PROCESSING_RETRY_BACKOFF_SECONDS = float(
+    os.getenv(
+        "PROCESSING_RETRY_BACKOFF_SECONDS",
+        "1.0",
+    )
+)
+
 DELETE_SPEECH_AFTER_MINUTES = int(
     os.getenv(
         "DELETE_SPEECH_AFTER_MINUTES",
