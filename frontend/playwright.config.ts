@@ -1,10 +1,21 @@
 import { defineConfig } from "@playwright/test";
+import fs from "node:fs";
 import path from "node:path";
 
 const BACKEND_PORT = 8199;
 const FRONTEND_PORT = 3199;
 const REPO_ROOT = path.resolve(__dirname, "..");
 const SCRATCH_DIR = path.join(__dirname, "e2e", ".scratch");
+
+// The backend's webServer entry below starts before any spec file's
+// test.beforeAll runs, and SQLite (unlike most drivers) cannot create its
+// own database file inside a directory that doesn't exist yet — on a truly
+// fresh checkout (no prior .scratch/ from an earlier run), that failure was
+// silently swallowed by the app's own startup handler, leaving every DB
+// table missing and every imaging/timeline request fail with a bare
+// "Failed to fetch" in the browser. Creating it here, before webServer
+// spawns, is what actually prevents that.
+fs.mkdirSync(SCRATCH_DIR, { recursive: true });
 
 const backendEnv = {
   ...process.env,

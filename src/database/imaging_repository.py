@@ -185,14 +185,35 @@ def confirm_report_sections(
     *,
     document_id: str,
     edits: dict[str, str],
+    confirm_types: set[str] | None = None,
 ) -> list[ImagingReportSection]:
-    """Applies user edits (if any) and marks sections confirmed. The
-    original extracted text (original_text) is never overwritten, mirroring
-    the extracted_value/confirmed_value discipline used for lab fields."""
+    """Applies user edits (if any) and marks the reviewed sections confirmed.
+    The original extracted text (original_text) is never overwritten,
+    mirroring the extracted_value/confirmed_value discipline used for lab
+    fields. `confirm_types=None` confirms every section (the original
+    all-or-nothing behavior); a given set confirms only those section types,
+    leaving the rest at their current status so a report can be verified
+    incrementally without ever auto-confirming sections the user hasn't
+    actually reviewed."""
     rows = get_report_sections(session, document_id)
     for row in rows:
         if row.section_type in edits:
             row.section_text = edits[row.section_type]
-        row.verification_status = "confirmed"
+        if confirm_types is None or row.section_type in confirm_types:
+            row.verification_status = "confirmed"
     session.flush()
     return rows
+
+
+def derive_study_verification_status(rows: list[ImagingReportSection]) -> str:
+    """Study-level status is a pure function of its sections' own
+    verification_status: verified only once every section is confirmed,
+    partially_verified once some (but not all) are, unverified otherwise."""
+    if not rows:
+        return "unverified"
+    confirmed = sum(1 for row in rows if row.verification_status == "confirmed")
+    if confirmed == len(rows):
+        return "verified"
+    if confirmed > 0:
+        return "partially_verified"
+    return "unverified"

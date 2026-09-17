@@ -84,6 +84,8 @@ export function ImagingWorkspace({
   }
 
   useEffect(() => {
+    // Fetch-on-mount from the backend; not a derivable render-time value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadModalities();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl]);
@@ -132,7 +134,13 @@ export function ImagingWorkspace({
   async function loadSections(studyId: string) {
     try {
       const data = await imagingApi.fetchSections(apiUrl, studyId);
-      setSections(data.sections || []);
+      const fetched = data.sections || [];
+      setSections(fetched);
+      // Sections already confirmed on the backend (e.g. reopening a
+      // partially-verified study) start out "reviewed" too, so progress and
+      // the Confirm button reflect real prior confirmation, not a reset.
+      const confirmedTypes = fetched.filter((s) => s.verification_status === "confirmed").map((s) => s.section_type);
+      if (confirmedTypes.length > 0) setReviewedTypes(new Set(confirmedTypes));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load report sections.");
     }
@@ -182,6 +190,15 @@ export function ImagingWorkspace({
     }
   }
 
+  // Dismisses a failed re-upload attempt and falls back to whatever report
+  // this study already had before that attempt — the upload endpoint never
+  // touches the study's existing report_document_id/sections until
+  // extraction fully succeeds, so the prior report is always still there.
+  function viewExistingReport() {
+    setTransientStatus(null);
+    setProcessingError("");
+  }
+
   function retryUpload() {
     if (lastUploadFile) void uploadReport(lastUploadFile);
   }
@@ -192,10 +209,13 @@ export function ImagingWorkspace({
     setError("");
     try {
       const payload = Object.entries(editedSections).map(([section_type, text]) => ({ section_type, text }));
-      const data = await imagingApi.confirmSections(apiUrl, selectedStudy.study_id, payload);
+      const data = await imagingApi.confirmSections(apiUrl, selectedStudy.study_id, payload, Array.from(reviewedTypes));
       setSections(data.sections || []);
-      setSelectedStudy({ ...selectedStudy, verification_status: "verified" });
-      pushToast("Report information verified", "success");
+      setSelectedStudy({ ...selectedStudy, verification_status: data.verification_status as ImagingStudy["verification_status"] });
+      pushToast(
+        data.verification_status === "verified" ? "Report information verified" : "Reviewed sections confirmed",
+        "success",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm this report.");
     } finally {
@@ -373,6 +393,7 @@ export function ImagingWorkspace({
           onOpenCompare={() => void openCompare(selectedStudy)}
           onUploadReport={(file) => void uploadReport(file)}
           onRetryUpload={retryUpload}
+          onViewExistingReport={viewExistingReport}
           onConfirm={() => void confirmSections()}
           onRequestDelete={requestDeleteSelected}
           onOpenTerminology={openTerminology}

@@ -21,16 +21,15 @@ function handleReportFileSelect(
   onAttach(file);
 }
 
-export function ImagingLandingEmptyState({ onAddStudy }: { onAddStudy: () => void }) {
+// No action button here — the persistent toolbar above already has its own
+// "Add imaging study" button; duplicating it here just puts two identically
+// labeled buttons on screen at once for a first-time (zero-study) visit.
+export function ImagingLandingEmptyState() {
   return (
     <EmptyState
       title="No imaging studies yet"
       body="Add an imaging study and its report to organize your imaging history."
-    >
-      <button type="button" className="forest-button" onClick={onAddStudy}>
-        <Upload size={15} /> Add imaging study
-      </button>
-    </EmptyState>
+    />
   );
 }
 

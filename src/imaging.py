@@ -36,6 +36,7 @@ from src.database.imaging_repository import (
     confirm_report_sections,
     create_study,
     delete_study,
+    derive_study_verification_status,
     get_report_sections,
     get_study,
     list_studies,
@@ -108,6 +109,7 @@ class SectionEdit(BaseModel):
 
 class ConfirmSectionsRequest(BaseModel):
     sections: list[SectionEdit] = []
+    confirm_types: list[str] = []
     reviewed: bool = False
 
 
@@ -483,13 +485,18 @@ async def confirm_sections_endpoint(
             raise HTTPException(status_code=409, detail="No report attached to this study yet.")
 
         edits = {item.section_type: item.text for item in request.sections}
+        confirm_types = set(request.confirm_types) if request.confirm_types else None
         rows = confirm_report_sections(
-            session, document_id=study.report_document_id, edits=edits
+            session,
+            document_id=study.report_document_id,
+            edits=edits,
+            confirm_types=confirm_types,
         )
-        set_study_verification_status(session, study_id, "verified")
+        new_status = derive_study_verification_status(rows)
+        set_study_verification_status(session, study_id, new_status)
         return {
             "sections": [serialize_section(row) for row in rows],
-            "verification_status": "verified",
+            "verification_status": new_status,
         }
 
 

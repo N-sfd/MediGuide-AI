@@ -37,7 +37,7 @@ export interface ImagingStudy {
   study_date: string | null;
   institution: string;
   report_document_id: string | null;
-  verification_status: "unverified" | "verified";
+  verification_status: "unverified" | "partially_verified" | "verified";
   created_at: string;
 }
 
@@ -101,12 +101,16 @@ export function deriveReportState(
 ): ReportState {
   if (transientStatus) return transientStatus;
   if (!study.report_document_id) return "no_report";
+  // study.verification_status is itself derived server-side from the
+  // sections' own verification_status (see derive_study_verification_status
+  // in src/database/imaging_repository.py), so it alone is authoritative —
+  // callers that haven't fetched sections (list/history views) still get an
+  // accurate state instead of defaulting to "review required".
   if (study.verification_status === "verified") return "verified";
+  if (study.verification_status === "partially_verified") return "partially_verified";
   if (sections.length === 0) return "review_required";
   const confirmedCount = sections.filter((s) => s.verification_status === "confirmed").length;
-  if (confirmedCount === 0) return "review_required";
-  if (confirmedCount < sections.length) return "partially_verified";
-  return "review_required";
+  return confirmedCount > 0 ? "partially_verified" : "review_required";
 }
 
 export const REPORT_STATE_LABELS: Record<ReportState, string> = {

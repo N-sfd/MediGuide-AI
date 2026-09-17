@@ -9,7 +9,9 @@
     "cloudflare:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cloudflare:preview": "opennextjs-cloudflare build && wrangler dev",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "pretest:e2e": "node -e \"require('fs').rmSync('e2e/.scratch', { recursive: true, force: true })\"",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "lucide-react": "^1.30.0",

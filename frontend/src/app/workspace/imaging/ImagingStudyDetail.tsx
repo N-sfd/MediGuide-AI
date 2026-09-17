@@ -28,6 +28,7 @@ export function ImagingStudyDetail({
   onOpenCompare,
   onUploadReport,
   onRetryUpload,
+  onViewExistingReport,
   onConfirm,
   onRequestDelete,
   onOpenTerminology,
@@ -51,6 +52,7 @@ export function ImagingStudyDetail({
   onOpenCompare: () => void;
   onUploadReport: (file: File) => void;
   onRetryUpload: () => void;
+  onViewExistingReport: () => void;
   onConfirm: () => void;
   onRequestDelete: () => void;
   onOpenTerminology: (term: string, sourceExcerpt: string) => void;
@@ -65,6 +67,8 @@ export function ImagingStudyDetail({
   // broken-image icon or a fake highlight over a page that doesn't exist.
   const [previewFailed, setPreviewFailed] = useState(false);
   useEffect(() => {
+    // Reset the "no preview" fallback whenever the target page changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewFailed(false);
   }, [previewUrl]);
   const showPreviewImage = Boolean(previewUrl) && !previewFailed;
@@ -83,10 +87,10 @@ export function ImagingStudyDetail({
       <div className="document-meta imaging-study-meta">
         <ScanLine size={18} aria-hidden="true" />
         <span>
-          <strong>
+          <h2>
             {MODALITY_LABELS[study.modality]}
             {study.body_region ? ` — ${study.body_region}` : ""}
-          </strong>
+          </h2>
           <small>{formatStudyDate(study.study_date)}</small>
         </span>
         <ImagingStatusChip state={state} />
@@ -106,7 +110,11 @@ export function ImagingStudyDetail({
 
       {transientStatus === "processing" && <ImagingProcessingState />}
       {transientStatus === "failed" && (
-        <ImagingProcessingFailedState message={processingError} onRetry={onRetryUpload} />
+        <ImagingProcessingFailedState
+          message={processingError}
+          onRetry={onRetryUpload}
+          onViewReport={study.report_document_id ? onViewExistingReport : undefined}
+        />
       )}
 
       {!study.report_document_id && !transientStatus ? (

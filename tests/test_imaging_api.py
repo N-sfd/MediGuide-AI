@@ -114,6 +114,37 @@ def test_confirm_flips_verification_status_and_allows_edits(api_client):
     assert study_after["verification_status"] == "verified"
 
 
+def test_confirm_is_incremental_and_never_auto_confirms_unreviewed_sections(api_client):
+    study = _create_study(api_client)
+    _attach_report(api_client, study["study_id"], REPORT_TEXT)
+
+    # Confirming only "findings" must leave exam/impression untouched and
+    # move the study to "partially_verified" rather than jumping to
+    # "verified" for sections nobody has reviewed yet.
+    response = api_client.post(
+        f"/api/imaging/studies/{study['study_id']}/report/confirm",
+        json={"reviewed": True, "sections": [], "confirm_types": ["findings"]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["verification_status"] == "partially_verified"
+    statuses = {s["section_type"]: s["verification_status"] for s in body["sections"]}
+    assert statuses["findings"] == "confirmed"
+    assert statuses["exam"] == "unverified"
+    assert statuses["impression"] == "unverified"
+
+    study_after = api_client.get(f"/api/imaging/studies/{study['study_id']}").json()
+    assert study_after["verification_status"] == "partially_verified"
+
+    # Confirming the remaining sections completes verification.
+    response = api_client.post(
+        f"/api/imaging/studies/{study['study_id']}/report/confirm",
+        json={"reviewed": True, "sections": [], "confirm_types": ["exam", "impression"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["verification_status"] == "verified"
+
+
 def test_compare_requires_both_reports_confirmed(api_client):
     study_a = _create_study(api_client, study_date="2025-05-14")
     upload_a = _attach_report(api_client, study_a["study_id"], REPORT_TEXT)

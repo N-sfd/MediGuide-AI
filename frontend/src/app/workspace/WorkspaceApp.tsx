@@ -251,6 +251,9 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
 
   useEffect(() => { void checkHealth(); void loadLibrary(); }, []);
   useEffect(() => {
+    // One-time hydration from localStorage/sessionStorage (external systems),
+    // not a value derivable from props/state during render.
+    /* eslint-disable react-hooks/set-state-in-effect */
     const stored = readStoredSettings();
     if (stored.answerDetail) setAnswerDetail(stored.answerDetail);
     if (stored.readingLevel) setReadingLevel(stored.readingLevel);
@@ -259,6 +262,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
       const visitDraft = window.sessionStorage.getItem(VISIT_STORAGE_KEY);
       if (visitDraft) setVisitFields(JSON.parse(visitDraft) as Record<string, string>);
     } catch { /* ignore */ }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
   useEffect(() => {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ answerDetail, readingLevel, language }));
@@ -267,12 +271,15 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     window.sessionStorage.setItem(VISIT_STORAGE_KEY, JSON.stringify(visitFields));
   }, [visitFields]);
   useEffect(() => {
+    // Syncs an external navigation prop (initialView) into local dialog state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialView === "privacy") setPrivacyOpen(true);
   }, [initialView]);
   useEffect(() => {
     // Only relevant while a Health Timeline "View study" cross-link is
     // resolving; leaving Imaging any other way clears it, so a later plain
     // sidebar-nav visit starts at the modality browser, not the old study.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (view !== "imaging") setPendingImagingStudyId(null);
   }, [view]);
   useEffect(() => {
@@ -1773,6 +1780,9 @@ function Visit({ fields, setFields, step, setStep, labPoints, medFields, onGener
   const [summary, setSummary] = useState("");
 
   useEffect(() => {
+    // Regenerates the editable draft when entering step 4 or its inputs
+    // change; user edits to the textarea itself are not overwritten otherwise.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (step === 4) setSummary(buildVisitSummaryText(fields, includeLabs, includeMeds, labPoints, medFields));
   }, [step, fields, includeLabs, includeMeds, labPoints, medFields]);
 

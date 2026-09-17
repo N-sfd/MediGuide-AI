@@ -85,11 +85,12 @@ export function confirmSections(
   apiUrl: string,
   studyId: string,
   edits: { section_type: string; text: string }[],
+  confirmTypes: string[],
 ): Promise<{ sections: ReportSection[]; verification_status: string }> {
   return fetchWithTimeout(`${apiUrl}/api/imaging/studies/${studyId}/report/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reviewed: true, sections: edits }),
+    body: JSON.stringify({ reviewed: true, sections: edits, confirm_types: confirmTypes }),
   }).then((r) => asJson(r, "Could not confirm this report."));
 }
 

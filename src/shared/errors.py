@@ -141,7 +141,7 @@ def install_error_handlers(app) -> None:
             },
             exc_info=exc,
         )
-        return JSONResponse(
+        response = JSONResponse(
             status_code=500,
             content=_envelope(
                 code="INTERNAL_ERROR",
@@ -149,3 +149,17 @@ def install_error_handlers(app) -> None:
                 retryable=True,
             ),
         )
+        # A handler registered for the bare `Exception` class runs inside
+        # Starlette's ServerErrorMiddleware, which sits *outside* every
+        # user-added middleware — including CORSMiddleware — so a truly
+        # unexpected error would otherwise ship without CORS headers and the
+        # browser would surface it to the frontend as an opaque "Failed to
+        # fetch" instead of this actual, legible error. The response body
+        # here carries no per-caller data, so echoing back the request's own
+        # Origin is safe regardless of the app's allow-list.
+        origin = request.headers.get("origin")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response

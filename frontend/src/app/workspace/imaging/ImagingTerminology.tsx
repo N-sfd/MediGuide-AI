@@ -25,6 +25,8 @@ export function ImagingTerminology({
   const [term, setTerm] = useState(initialTerm);
 
   useEffect(() => {
+    // Reset the editable term field whenever the drawer opens for a new term.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) setTerm(initialTerm);
   }, [open, initialTerm]);
 

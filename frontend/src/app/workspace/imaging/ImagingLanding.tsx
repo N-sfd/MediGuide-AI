@@ -116,7 +116,7 @@ export function ImagingLanding({
       )}
 
       {noStudiesAtAll ? (
-        <ImagingLandingEmptyState onAddStudy={() => setShowAddForm(true)} />
+        <ImagingLandingEmptyState />
       ) : (
         <>
           <h3 className="imaging-section-title">Explore by modality</h3>

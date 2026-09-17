@@ -33,8 +33,15 @@ export function ImagingReportPanel({
   const orderedSections = SECTION_ORDER.map((type) => sections.find((s) => s.section_type === type)).filter(
     (s): s is ReportSection => Boolean(s),
   );
-  const alreadyVerified = study.verification_status === "verified";
-  const allReviewed = orderedSections.every((section) => reviewedTypes.has(section.section_type));
+  const confirmedTypes = new Set(orderedSections.filter((s) => s.verification_status === "confirmed").map((s) => s.section_type));
+  const allConfirmed = orderedSections.length > 0 && orderedSections.every((section) => confirmedTypes.has(section.section_type));
+  // Enabled once at least one *unconfirmed* section has been reviewed —
+  // confirming never requires reviewing every section first, so a report can
+  // be verified incrementally across visits without auto-confirming
+  // sections nobody has looked at yet.
+  const hasNewReview = orderedSections.some(
+    (section) => reviewedTypes.has(section.section_type) && !confirmedTypes.has(section.section_type),
+  );
 
   function markReviewed(sectionType: string) {
     if (reviewedTypes.has(sectionType)) return;
@@ -53,7 +60,7 @@ export function ImagingReportPanel({
         <FileText size={13} /> FROM THE RADIOLOGY REPORT
       </p>
 
-      {!alreadyVerified && (
+      {!allConfirmed && (
         <p className="imaging-review-progress" role="status" aria-live="polite">
           {reviewedTypes.size} of {orderedSections.length} sections reviewed
         </p>
@@ -62,6 +69,7 @@ export function ImagingReportPanel({
       {orderedSections.map((section) => {
         const currentText = editedSections[section.section_type] ?? section.section_text;
         const isCorrected = currentText !== section.original_text;
+        const confirmed = confirmedTypes.has(section.section_type);
         const reviewed = reviewedTypes.has(section.section_type);
         return (
           <div key={section.section_id} className="imaging-section-block">
@@ -70,7 +78,7 @@ export function ImagingReportPanel({
                 {SECTION_LABELS[section.section_type] || section.section_type}
               </label>
               <span className={`imaging-section-status imaging-section-status-${reviewed ? "reviewed" : "unreviewed"}`}>
-                {alreadyVerified ? "Confirmed" : isCorrected ? "Corrected" : reviewed ? "Reviewed" : "Unverified"}
+                {confirmed ? "Confirmed" : isCorrected ? "Corrected" : reviewed ? "Reviewed" : "Unverified"}
               </span>
             </div>
 
@@ -84,7 +92,7 @@ export function ImagingReportPanel({
             <textarea
               id={`imaging-section-${section.section_id}`}
               value={currentText}
-              disabled={alreadyVerified}
+              disabled={confirmed}
               onFocus={() => markReviewed(section.section_type)}
               onChange={(event) =>
                 setEditedSections({ ...editedSections, [section.section_type]: event.target.value })
@@ -112,11 +120,11 @@ export function ImagingReportPanel({
         );
       })}
 
-      {!alreadyVerified && (
+      {!allConfirmed && (
         <button
           type="button"
           className="forest-button imaging-confirm-button"
-          disabled={!allReviewed || confirming}
+          disabled={!hasNewReview || confirming}
           onClick={onConfirm}
         >
           <Check size={14} /> Confirm reviewed sections

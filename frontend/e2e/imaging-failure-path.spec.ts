@@ -11,6 +11,10 @@ test.beforeAll(() => {
 
 async function openImagingAndCreateStudy(page: import("@playwright/test").Page, modality = "mri") {
   await page.goto("/workspace");
+  // Wait for hydration to finish before the first interaction — Next 16's
+  // streaming hydration can paint the sidebar before its click handlers are
+  // attached (see imaging-happy-path.spec.ts).
+  await expect(sidebarImagingNav(page)).toBeEnabled();
   await sidebarImagingNav(page).click();
   await page.getByRole("button", { name: "Add imaging study" }).click();
   await page.locator(".imaging-add-form select").selectOption(modality);

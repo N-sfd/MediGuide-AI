@@ -71,3 +71,15 @@ def test_validation_error_is_422_not_generic_500():
     assert response.status_code == 422
     body = response.json()
     assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_unhandled_exception_still_carries_cors_headers():
+    """A handler registered for the bare Exception class runs inside
+    Starlette's ServerErrorMiddleware, which sits outside CORSMiddleware —
+    so without this, a genuinely unexpected error (e.g. a broken database)
+    ships without CORS headers and a cross-origin browser sees an opaque
+    "Failed to fetch" instead of this actual, readable error."""
+    response = client.get("/unhandled-error", headers={"Origin": "http://localhost:3199"})
+    assert response.status_code == 500
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3199"
+    assert response.headers["access-control-allow-credentials"] == "true"

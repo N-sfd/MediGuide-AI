@@ -91,29 +91,6 @@ class SpeakRequest(BaseModel):
 
 app = FastAPI(title="MediGuide AI API", version="1.2.0")
 
-# Production frontend (Vercel) + local Next.js. FRONTEND_ORIGINS can extend the list.
-_DEFAULT_ORIGINS = [
-    "https://mediguide-ai-woad.vercel.app",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://medi.naziaasif1412.workers.dev",
-    "https://frontend.naziaasif1412.workers.dev",
-]
-_env_origins = [
-    origin.strip()
-    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
-    if origin.strip()
-]
-_allow_origins = list(dict.fromkeys([*_DEFAULT_ORIGINS, *_env_origins]))
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_allow_origins,
-    allow_origin_regex=r"https://.*\.(workers\.dev|pages\.dev|vercel\.app)",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # These routers already declare their own prefixes — no extra prefix
 # here, or every route (including served page/preview files) breaks.
 app.include_router(document_intelligence_router)
@@ -148,6 +125,37 @@ async def _request_id_middleware(request: Request, call_next):
     return response
 
 
+# Production frontend (Vercel) + local Next.js. FRONTEND_ORIGINS can extend the
+# list. Registered *after* _request_id_middleware (a BaseHTTPMiddleware) so it
+# ends up outermost — Starlette applies the most-recently-added middleware
+# first, and a BaseHTTPMiddleware whose call_next() raises (which it does
+# whenever the wrapped app errors, even after an @app.exception_handler has
+# already converted that error into a response) loses whatever headers an
+# *inner* CORSMiddleware would have added, so the browser sees a CORS-blocked
+# "Failed to fetch" instead of the real error response. Outermost avoids that.
+_DEFAULT_ORIGINS = [
+    "https://mediguide-ai-woad.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://medi.naziaasif1412.workers.dev",
+    "https://frontend.naziaasif1412.workers.dev",
+]
+_env_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
+_allow_origins = list(dict.fromkeys([*_DEFAULT_ORIGINS, *_env_origins]))
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allow_origins,
+    allow_origin_regex=r"https://.*\.(workers\.dev|pages\.dev|vercel\.app)",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 @app.get("/")
 def root() -> dict[str, object]:
     """Avoid a bare JSON 404 when someone opens the API URL in a browser."""
@@ -166,9 +174,16 @@ def _startup() -> None:
     configure_logging()
     try:
         init_db()
-    except Exception:
-        # API remains usable for document upload even if the relational store is offline.
-        pass
+    except Exception as error:
+        # API remains usable for document upload even if the relational store
+        # is offline — but logged, not silent, so a genuinely broken DB (e.g.
+        # an unwritable data directory) shows up immediately instead of
+        # surfacing later as confusing per-request "no such table" errors.
+        logger.error(
+            "database_init_failed",
+            extra={"technical_detail": f"{type(error).__name__}: {error}"},
+            exc_info=error,
+        )
 
 
 # --------------------------------------------------------------------------
