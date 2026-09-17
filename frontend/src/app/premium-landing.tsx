@@ -4,14 +4,17 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, ShieldCheck, X } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import {
+  ConnectedRecordSection,
   DocumentWorkflow,
   FinalCTA,
   GroundedExplanationDemo,
   HeroLabTimeline,
+  ImagingIntelligenceSection,
   ProductWorkspacePreview,
   ProvenanceSection,
   ResponsibleAISection,
   SupportingCapabilities,
+  UnifiedTimelinePreview,
   VerificationDemo,
 } from "./landing/sections";
 import { MEDIGUIDE_TAGLINE } from "./brand-logo";
@@ -63,17 +66,20 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
         </button>
 
         <nav className="landing-nav desktop-nav" aria-label="Primary">
-          <button type="button" onClick={() => scrollTo("product")}>
+          <button type="button" onClick={() => scrollTo("connected")}>
             Product
+          </button>
+          <button type="button" onClick={() => scrollTo("product")}>
+            Labs
+          </button>
+          <button type="button" onClick={() => scrollTo("imaging")}>
+            Imaging
           </button>
           <button type="button" onClick={() => scrollTo("how-it-works")}>
             How it works
           </button>
           <button type="button" onClick={() => scrollTo("responsible-ai")}>
             Responsible AI
-          </button>
-          <button type="button" onClick={() => scrollTo("privacy")}>
-            Privacy
           </button>
         </nav>
 
@@ -99,17 +105,20 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
 
       {navOpen ? (
         <div className="mobile-nav-panel" role="dialog" aria-label="Mobile navigation">
-          <button type="button" onClick={() => scrollTo("product")}>
+          <button type="button" onClick={() => scrollTo("connected")}>
             Product
+          </button>
+          <button type="button" onClick={() => scrollTo("product")}>
+            Labs
+          </button>
+          <button type="button" onClick={() => scrollTo("imaging")}>
+            Imaging
           </button>
           <button type="button" onClick={() => scrollTo("how-it-works")}>
             How it works
           </button>
           <button type="button" onClick={() => scrollTo("responsible-ai")}>
             Responsible AI
-          </button>
-          <button type="button" onClick={() => scrollTo("privacy")}>
-            Privacy
           </button>
           <button type="button" className="quiet-button" onClick={() => handleStart("documents", "sample")}>
             View demo
@@ -151,9 +160,12 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
         </div>
       </section>
 
+      <ConnectedRecordSection />
       <ProductWorkspacePreview onStart={handleStart} />
       <DocumentWorkflow />
+      <ImagingIntelligenceSection onStart={handleStart} />
       <VerificationDemo onStart={handleStart} />
+      <UnifiedTimelinePreview onStart={handleStart} />
       <ProvenanceSection />
       <GroundedExplanationDemo onStart={handleStart} />
       <SupportingCapabilities onStart={handleStart} />
@@ -166,20 +178,26 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
           <p className="footer-tagline">{MEDIGUIDE_TAGLINE}</p>
         </div>
         <nav aria-label="Footer">
-          <button type="button" className="footer-link-btn" onClick={() => scrollTo("product")}>
+          <button type="button" className="footer-link-btn" onClick={() => scrollTo("connected")}>
             Product
           </button>
-          <button type="button" className="footer-link-btn" onClick={() => scrollTo("responsible-ai")}>
-            Responsible AI
+          <button type="button" className="footer-link-btn" onClick={() => scrollTo("product")}>
+            Labs
           </button>
-          <button type="button" className="footer-link-btn" onClick={() => scrollTo("privacy")}>
-            Privacy
+          <button type="button" className="footer-link-btn" onClick={() => scrollTo("imaging")}>
+            Imaging
+          </button>
+          <button type="button" className="footer-link-btn" onClick={() => handleStart("medication")}>
+            Medications
+          </button>
+          <button type="button" className="footer-link-btn" onClick={() => handleStart("visit")}>
+            Visit Preparation
           </button>
           <button type="button" className="footer-link-btn" onClick={() => handleStart("sources")}>
             Sources
           </button>
-          <button type="button" className="footer-link-btn" onClick={() => handleStart("documents")}>
-            Workspace
+          <button type="button" className="footer-link-btn" onClick={() => scrollTo("privacy")}>
+            Privacy
           </button>
         </nav>
         <p className="footer-disclaimer">

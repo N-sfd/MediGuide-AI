@@ -2,15 +2,22 @@
 
 import { useId, useState, type ReactNode } from "react";
 import {
+  Aperture,
   ArrowRight,
   ArrowUpRight,
+  BookOpen,
   Check,
   FileText,
+  GitCompare,
+  Layers,
+  Link2,
   Mic,
   Pill,
+  ScanLine,
   ShieldCheck,
   Sparkles,
   Stethoscope,
+  Waves,
 } from "lucide-react";
 import {
   APPROVED_SOURCE_EXAMPLES,
@@ -131,9 +138,43 @@ function TimelineChart({
   );
 }
 
+/**
+ * A teaser, not the full instrument — deliberately lighter than TimelineChart
+ * (no axis, no per-point buttons, no table fallback) so the hero previews
+ * the idea of a trend without duplicating the full Lab Intelligence section
+ * immediately below it.
+ */
+function HeroSparkline({ points }: { points: SyntheticLabPoint[] }) {
+  const max = Math.max(...points.map((p) => p.value));
+  const min = Math.min(...points.map((p) => p.value));
+  const range = Math.max(max - min, 0.4);
+  const width = 220;
+  const height = 56;
+  const coords = points.map((point, index) => {
+    const x = (index / (points.length - 1)) * width;
+    const y = height - ((point.value - min) / range) * (height - 12) - 6;
+    return { x, y, point };
+  });
+  const path = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
+
+  return (
+    <svg
+      className="hero-sparkline"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Hemoglobin A1C trend across ${points.length} verified synthetic reports, rising from ${points[0].value}% to ${points[points.length - 1].value}%`}
+    >
+      <path d={path} fill="none" stroke="#156b5a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {coords.map(({ x, y, point }, index) => (
+        <circle key={point.id} cx={x} cy={y} r={index === coords.length - 1 ? 4 : 3} fill={index === coords.length - 1 ? "#d87968" : "#156b5a"} />
+      ))}
+    </svg>
+  );
+}
+
 export function HeroLabTimeline({ onStart }: { onStart: StartHandler }) {
-  const [selectedId, setSelectedId] = useState(SYNTHETIC_A1C_POINTS[2].id);
-  const selected = SYNTHETIC_A1C_POINTS.find((p) => p.id === selectedId) ?? SYNTHETIC_A1C_POINTS[2];
+  const selected = SYNTHETIC_A1C_POINTS[SYNTHETIC_A1C_POINTS.length - 1];
+  const first = SYNTHETIC_A1C_POINTS[0];
   const flag = flagLabel(selected.flagged);
 
   return (
@@ -150,7 +191,12 @@ export function HeroLabTimeline({ onStart }: { onStart: StartHandler }) {
           </div>
           <span className="lt-badge">Synthetic</span>
         </div>
-        <TimelineChart points={SYNTHETIC_A1C_POINTS} selectedId={selectedId} onSelect={setSelectedId} compact />
+        <div className="hero-sparkline-row">
+          <HeroSparkline points={SYNTHETIC_A1C_POINTS} />
+          <p className="hero-sparkline-caption">
+            {first.value}% → {selected.value}% across {SYNTHETIC_A1C_POINTS.length} verified reports
+          </p>
+        </div>
         <div className="hero-timeline-strip">
           {flag ? <span className="lt-flag">{flag}</span> : null}
           <button type="button" className="quiet-button lt-source-btn" onClick={() => onStart("documents", "sample")}>
@@ -159,6 +205,56 @@ export function HeroLabTimeline({ onStart }: { onStart: StartHandler }) {
         </div>
       </div>
     </MockChrome>
+  );
+}
+
+export function ConnectedRecordSection() {
+  return (
+    <section className="connected-record band-mint tier-2" id="connected">
+      <div className="section-shell reveal">
+        <div className="section-intro narrow">
+          <p className="eyebrow">CONNECTED HEALTH INFORMATION</p>
+          <h2>Your health information rarely lives in one place.</h2>
+          <p>
+            Lab reports, imaging reports, medication labels and visit notes often arrive as separate documents.
+            MediGuide helps organize verified information while keeping every item connected to its original
+            evidence.
+          </p>
+        </div>
+        <div className="connected-record-grid">
+          <article className="connected-tile connected-tile-photo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/mediguide_lifestyle.png" alt="" loading="lazy" decoding="async" />
+            <div className="connected-tile-label">
+              <span className="connected-tile-kicker">LABS</span>
+              <p>Longitudinal measurements, verified and source-linked.</p>
+            </div>
+          </article>
+          <article className="connected-tile connected-tile-icon">
+            <span className="connected-tile-icon-mark">
+              <ScanLine size={22} />
+            </span>
+            <span className="connected-tile-kicker">IMAGING</span>
+            <p>Studies and radiology report text, organized by modality.</p>
+          </article>
+          <article className="connected-tile connected-tile-photo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/mediguide_medication_hero.png" alt="" loading="lazy" decoding="async" />
+            <div className="connected-tile-label">
+              <span className="connected-tile-kicker">MEDICATIONS</span>
+              <p>Printed label information, verified before it is trusted.</p>
+            </div>
+          </article>
+          <article className="connected-tile connected-tile-icon">
+            <span className="connected-tile-icon-mark">
+              <Stethoscope size={22} />
+            </span>
+            <span className="connected-tile-kicker">VISITS</span>
+            <p>Preparation summaries built from information already verified.</p>
+          </article>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -300,6 +396,72 @@ export function DocumentWorkflow() {
   );
 }
 
+const IMAGING_MODALITIES = [
+  { label: "X-Ray", Icon: ScanLine },
+  { label: "CT", Icon: Layers },
+  { label: "MRI", Icon: Aperture },
+  { label: "Ultrasound", Icon: Waves },
+  { label: "PET/CT", Icon: Sparkles },
+];
+
+const IMAGING_HISTORY_ROWS = [
+  { year: "2026", modality: "MRI", region: "Right Knee", date: "Sep 02" },
+  { year: "2025", modality: "MRI", region: "Right Knee", date: "May 14" },
+  { year: "2024", modality: "X-Ray", region: "Right Knee", date: "Nov 03" },
+];
+
+export function ImagingIntelligenceSection({ onStart }: { onStart: StartHandler }) {
+  return (
+    <section className="imaging-intel band-white tier-1" id="imaging">
+      <div className="section-shell imaging-intel-grid reveal">
+        <div className="imaging-intel-side">
+          <p className="eyebrow">IMAGING INTELLIGENCE</p>
+          <h2>Keep imaging studies and their reports connected.</h2>
+          <p>
+            Organize X-Ray, CT, MRI, Ultrasound and PET/CT studies, verify information extracted from radiology
+            reports, compare report wording over time, and return to the original source evidence.
+          </p>
+          <div className="imaging-modality-badges" aria-hidden="true">
+            {IMAGING_MODALITIES.map(({ label, Icon }) => (
+              <span key={label} className="imaging-modality-badge">
+                <Icon size={16} /> {label}
+              </span>
+            ))}
+          </div>
+          <button type="button" className="text-link" onClick={() => onStart("imaging")}>
+            Open imaging <ArrowUpRight size={13} />
+          </button>
+        </div>
+        <MockChrome title="Imaging · History" subtitle="3 studies · verified" className="imaging-history-frame">
+          <div className="imaging-history-mock">
+            <p className="panel-kicker">Imaging History</p>
+            {IMAGING_HISTORY_ROWS.map((row, index) => {
+              const showYear = index === 0 || row.year !== IMAGING_HISTORY_ROWS[index - 1].year;
+              return (
+                <div key={`${row.year}-${row.date}`} className="imaging-history-mock-row">
+                  {showYear ? <span className="imaging-history-mock-year">{row.year}</span> : <span />}
+                  <div>
+                    <strong>
+                      {row.modality} · {row.region}
+                    </strong>
+                    <small>{row.date}</small>
+                  </div>
+                  <span className="imaging-history-mock-status">
+                    <Check size={13} /> Report verified
+                  </span>
+                </div>
+              );
+            })}
+            <button type="button" className="quiet-button imaging-history-mock-compare" onClick={() => onStart("imaging")}>
+              <GitCompare size={14} /> Compare reports
+            </button>
+          </div>
+        </MockChrome>
+      </div>
+    </section>
+  );
+}
+
 export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
   return (
     <section className="verification-demo band-white tier-1" id="verification">
@@ -312,7 +474,7 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
             found against the original report.
           </p>
         </div>
-        <MockChrome title="Document review" subtitle="2 of 8 reviewed" className="verify-frame">
+        <MockChrome title="Document review" subtitle="3 of 8 reviewed" className="verify-frame">
           <div className="verify-toolbar">
             <div className="verify-toolbar-doc">
               <FileText size={15} />
@@ -355,6 +517,12 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
                       <td>—</td>
                       <td>70–99</td>
                     </tr>
+                    <tr>
+                      <td>LDL Cholesterol</td>
+                      <td>111 mg/dL</td>
+                      <td>—</td>
+                      <td>&lt;100</td>
+                    </tr>
                   </tbody>
                 </table>
                 <p className="report-footnote">Synthetic portfolio sample — not a real patient record.</p>
@@ -362,7 +530,7 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
             </div>
             <div className="verify-fields">
               <p className="panel-kicker">Extracted lab information</p>
-              <p className="review-progress">2 of 8 reviewed</p>
+              <p className="review-progress">3 of 8 reviewed</p>
               <article className="verify-field-card active">
                 <header>
                   <strong>Hemoglobin A1C</strong>
@@ -378,6 +546,26 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
                   </div>
                 </dl>
                 <p className="lt-flag">Flagged high on this report</p>
+                <div className="verify-actions">
+                  <button type="button" className="forest-button" onClick={() => onStart("documents", "sample")}>
+                    Confirmed <Check size={14} />
+                  </button>
+                </div>
+              </article>
+              <article className="verify-field-card">
+                <header>
+                  <strong>LDL Cholesterol</strong>
+                  <span className="confidence-pill">Clearly visible</span>
+                </header>
+                <p className="verify-value">
+                  111 <span>mg/dL</span>
+                </p>
+                <dl>
+                  <div>
+                    <dt>Printed reference range</dt>
+                    <dd>&lt;100</dd>
+                  </div>
+                </dl>
                 <div className="verify-actions">
                   <button type="button" className="forest-button" onClick={() => onStart("documents", "sample")}>
                     Confirm <Check size={14} />
@@ -406,6 +594,55 @@ export function VerificationDemo({ onStart }: { onStart: StartHandler }) {
             </div>
           </div>
         </MockChrome>
+      </div>
+    </section>
+  );
+}
+
+const UNIFIED_TIMELINE_ROWS = [
+  { date: "SEP 02", category: "Imaging", Icon: ScanLine, title: "MRI — Right Knee", detail: "Verified report", action: "View study" },
+  { date: "AUG 12", category: "Laboratory", Icon: FileText, title: "Lab Report", detail: "12 verified measurements", action: "View results" },
+  { date: "JUL 28", category: "Medication", Icon: Pill, title: "Medication label", detail: "Verified", action: "View" },
+  { date: "APR 18", category: "Laboratory", Icon: FileText, title: "Lab Report", detail: "11 verified measurements", action: "View results" },
+];
+
+export function UnifiedTimelinePreview({ onStart }: { onStart: StartHandler }) {
+  return (
+    <section className="unified-timeline band-white tier-1" id="unified-timeline">
+      <div className="section-shell reveal">
+        <div className="section-intro narrow">
+          <p className="eyebrow">CONNECTED ACROSS WORKSPACES</p>
+          <h2>A clearer history across your health documents.</h2>
+          <p>
+            Health Timeline brings verified imaging, lab, and medication activity into one chronological view —
+            every entry still links back to the workspace and evidence it came from.
+          </p>
+        </div>
+        <MockChrome title="Health Timeline" subtitle="Verified · 2026" className="unified-timeline-frame">
+          <div className="unified-timeline-mock">
+            <p className="unified-timeline-year">2026</p>
+            {UNIFIED_TIMELINE_ROWS.map((row) => (
+              <div key={`${row.date}-${row.title}`} className="unified-timeline-row">
+                <span className="unified-timeline-date">{row.date}</span>
+                <div>
+                  <span className="unified-timeline-category">
+                    <row.Icon size={13} aria-hidden="true" /> {row.category}
+                  </span>
+                  <strong>{row.title}</strong>
+                  <small>
+                    <Check size={12} /> {row.detail}
+                  </small>
+                </div>
+                <button type="button" className="text-link" onClick={() => onStart("timeline")}>
+                  {row.action}
+                </button>
+              </div>
+            ))}
+          </div>
+        </MockChrome>
+        <button type="button" className="quiet-button" onClick={() => onStart("timeline")}>
+          Open Health Timeline <ArrowUpRight size={14} />
+        </button>
       </div>
     </section>
   );
@@ -551,6 +788,16 @@ export function SupportingCapabilities({ onStart }: { onStart: StartHandler }) {
         <div className="support-card-grid restrained">
           <article className="support-card quiet">
             <span className="support-icon">
+              <ScanLine size={16} />
+            </span>
+            <h3>Imaging</h3>
+            <p>Organize X-Ray, CT, MRI, Ultrasound and PET/CT studies and their radiology reports.</p>
+            <button type="button" className="text-link" onClick={() => onStart("imaging")}>
+              Open imaging <ArrowUpRight size={13} />
+            </button>
+          </article>
+          <article className="support-card quiet">
+            <span className="support-icon">
               <Pill size={16} />
             </span>
             <h3>Medications</h3>
@@ -585,46 +832,44 @@ export function SupportingCapabilities({ onStart }: { onStart: StartHandler }) {
   );
 }
 
-export function ResponsibleAISection({ onStart }: { onStart?: StartHandler }) {
-  const principles = [
-    "Source evidence stays visible",
-    "Human verification before downstream use",
-    "Synthetic / demo data available",
-    "Clear educational boundaries",
-    "Document deletion controls",
-    "Privacy-conscious processing",
-  ];
+const RESPONSIBLE_PRINCIPLES = [
+  { Icon: Check, title: "VERIFY", detail: "Extracted information is reviewed before downstream use." },
+  { Icon: Link2, title: "TRACE", detail: "Verified information remains connected to source evidence." },
+  { Icon: BookOpen, title: "GROUND", detail: "Educational explanations use approved sources." },
+];
 
+export function ResponsibleAISection({ onStart }: { onStart?: StartHandler }) {
   return (
     <section className="responsible-ai band-white tier-3" id="responsible-ai">
       <div className="section-shell reveal">
-        <div className="responsible-grid">
-          <div>
-            <p className="eyebrow">RESPONSIBLE AI + PRIVACY</p>
-            <h2>Built around grounded AI.</h2>
-            <p>
-              Extracted information stays connected to its original document evidence, while educational explanations are
-              supported by approved health sources. MediGuide does not autonomously diagnose conditions, prescribe
-              treatment, or replace professional medical care.
-            </p>
-            <p className="privacy-inline" id="privacy">
-              Session uploads and temporary files are designed to stay under user control. MediGuide is an educational
-              prototype — not a clinical system of record.
-            </p>
-            {onStart ? (
-              <button type="button" className="quiet-button privacy-system-link" onClick={() => onStart("system")}>
-                Open system status <ArrowUpRight size={14} />
-              </button>
-            ) : null}
-          </div>
-          <ul className="principle-list">
-            {principles.map((item) => (
-              <li key={item}>
-                <Check size={15} /> {item}
-              </li>
-            ))}
-          </ul>
+        <div className="section-intro narrow">
+          <p className="eyebrow">RESPONSIBLE AI + PRIVACY</p>
+          <h2>Built around grounded AI.</h2>
         </div>
+        <div className="principle-card-row">
+          {RESPONSIBLE_PRINCIPLES.map(({ Icon, title, detail }) => (
+            <article key={title} className="principle-card">
+              <span className="principle-card-icon">
+                <Icon size={17} />
+              </span>
+              <h3>{title}</h3>
+              <p>{detail}</p>
+            </article>
+          ))}
+        </div>
+        <p className="responsible-statement">
+          MediGuide does not autonomously diagnose conditions, prescribe treatment, or replace professional medical
+          care.
+        </p>
+        <p className="privacy-inline" id="privacy">
+          Session uploads and temporary files are designed to stay under user control. MediGuide is an educational
+          prototype — not a clinical system of record.
+        </p>
+        {onStart ? (
+          <button type="button" className="quiet-button privacy-system-link" onClick={() => onStart("system")}>
+            Open system status <ArrowUpRight size={14} />
+          </button>
+        ) : null}
       </div>
     </section>
   );
