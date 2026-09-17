@@ -633,21 +633,31 @@ export function ResponsibleAISection({ onStart }: { onStart?: StartHandler }) {
 export function FinalCTA({ onStart }: { onStart: StartHandler }) {
   return (
     <section className="final-cta band-mint" id="demo">
-      <div className="section-shell reveal">
-        <p className="eyebrow">TRY MEDIGUIDE</p>
-        <h2>See document intelligence with the evidence still attached.</h2>
-        <p>Explore MediGuide using synthetic lab data, or open the workspace to review a document.</p>
-        <div className="final-cta-actions">
-          <button type="button" className="forest-button" onClick={() => onStart("documents", "sample")}>
-            Try the synthetic demo <ArrowUpRight size={17} />
-          </button>
-          <button type="button" className="quiet-button" onClick={() => onStart("documents")}>
-            Open workspace
-          </button>
+      <div className="section-shell final-cta-grid reveal">
+        <div className="final-cta-copy">
+          <p className="eyebrow">TRY MEDIGUIDE</p>
+          <h2>See document intelligence with the evidence still attached.</h2>
+          <p>Explore MediGuide using synthetic lab data, or open the workspace to review a document.</p>
+          <div className="final-cta-actions">
+            <button type="button" className="forest-button" onClick={() => onStart("documents", "sample")}>
+              Try the synthetic demo <ArrowUpRight size={17} />
+            </button>
+            <button type="button" className="quiet-button" onClick={() => onStart("documents")}>
+              Open workspace
+            </button>
+          </div>
+          <p className="final-boundary">
+            <Sparkles size={14} /> Educational support only. No autonomous diagnosis or treatment decisions.
+          </p>
         </div>
-        <p className="final-boundary">
-          <Sparkles size={14} /> Educational support only. No autonomous diagnosis or treatment decisions.
-        </p>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          className="final-cta-photo"
+          src="/assets/mediguide_lifestyle_home.png"
+          alt="A person reviewing a printed lab report alongside their MediGuide results on a tablet at home"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
     </section>
   );

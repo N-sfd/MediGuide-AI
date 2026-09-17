@@ -15,11 +15,28 @@ const landingSerif = Source_Serif_4({
   style: ["normal", "italic"],
 });
 
+const DESCRIPTION =
+  "Health document intelligence that converts uploaded lab reports into structured, traceable timelines and understandable educational explanations while preserving source evidence.";
+
 export const metadata: Metadata = {
+  // Without this, Next resolves the OG/Twitter image to a relative path
+  // against "http://localhost:3000" in production, so link previews on
+  // Slack/X/LinkedIn would point at a URL that doesn't exist.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://mediguide-ai-woad.vercel.app"),
   title: "MediGuide — Health Document Intelligence",
-  description:
-    "Health document intelligence that converts uploaded lab reports into structured, traceable timelines and understandable educational explanations while preserving source evidence.",
+  description: DESCRIPTION,
   applicationName: "MediGuide",
+  openGraph: {
+    title: "MediGuide — Health Document Intelligence",
+    description: DESCRIPTION,
+    siteName: "MediGuide",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "MediGuide — Health Document Intelligence",
+    description: DESCRIPTION,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
