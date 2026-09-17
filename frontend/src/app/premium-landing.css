@@ -46,39 +46,10 @@
   padding: 0;
 }
 
-.brand-logo {
-  display: block;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-}
-
-.brand-lockup {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-lockup-wordmark .brand-mark-svg {
-  width: 26px;
-  height: 31px;
-  flex-shrink: 0;
-}
-
-.brand-wordmark-text {
-  font: 700 17px / 1 var(--pl-sans);
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-
-.brand-logo-full-img {
-  display: block;
-  height: 56px;
-  width: auto;
-  max-width: min(280px, 72vw);
-  object-fit: contain;
-  border-radius: 6px;
-}
+/* Shared .brand-logo / .brand-lockup / .brand-wordmark-text / .brand-logo-full-img
+   base rules now live in globals.css so the workspace (which doesn't load
+   this stylesheet) gets the same layout. Only landing-page-specific sizing
+   overrides remain here. */
 
 .brand-logo-header {
   height: auto;
@@ -103,15 +74,6 @@
   background: #fff;
   border-radius: 8px;
   padding: 8px 10px;
-}
-
-.footer-tagline {
-  margin: 10px 0 0;
-  color: #9eb5aa;
-  font: 600 10px / 1.4 var(--pl-sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  max-width: 28rem;
 }
 
 .landing-nav {

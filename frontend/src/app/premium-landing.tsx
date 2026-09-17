@@ -17,7 +17,6 @@ import {
   UnifiedTimelinePreview,
   VerificationDemo,
 } from "./landing/sections";
-import { MEDIGUIDE_TAGLINE } from "./brand-logo";
 import "./premium-landing.css";
 
 function useReveal() {
@@ -174,8 +173,9 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
 
       <footer className="landing-footer">
         <div className="footer-brand">
+          {/* variant="full" already renders the tagline baked into the
+              lockup image — a separate caption here just repeated it. */}
           <BrandLogo variant="full" className="brand-logo-footer" />
-          <p className="footer-tagline">{MEDIGUIDE_TAGLINE}</p>
         </div>
         <nav aria-label="Footer">
           <button type="button" className="footer-link-btn" onClick={() => scrollTo("connected")}>

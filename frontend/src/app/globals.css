@@ -1,4 +1,14 @@
 @import "tailwindcss";
+/* Shared BrandLogo/BrandMark layout — must live outside premium-landing.css
+   so the workspace (which never loads that stylesheet) still lays the mark
+   and wordmark out side by side instead of stacked. Tailwind's preflight
+   sets svg{display:block}, and without .brand-lockup's inline-flex here to
+   override it, the icon and "MediGuide" text wrap onto separate lines. */
+.brand-logo{display:block;width:auto;height:auto;object-fit:contain}
+.brand-lockup{display:inline-flex;align-items:center;gap:10px}
+.brand-lockup-wordmark .brand-mark-svg{width:26px;height:31px;flex-shrink:0}
+.brand-wordmark-text{font:700 17px/1 var(--sans);letter-spacing:-.02em;color:var(--ink)}
+.brand-logo-full-img{display:block;height:56px;width:auto;max-width:min(280px,72vw);object-fit:contain;border-radius:6px}
 .header-context{color:#8a9690;font:500 11px var(--sans);letter-spacing:.01em;margin-left:20px;margin-right:auto}.conversation-meta{display:grid;justify-items:end;gap:10px}.care-mode{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid #cfe1d8;border-radius:8px;background:#f2f8f4;color:var(--forest);font:700 10px var(--sans);white-space:nowrap}.care-mode svg{color:#3e9b70}.conversation-header{padding-bottom:24px;border-bottom:1px solid var(--border)}.quick-actions{margin-top:26px;grid-template-columns:repeat(3,1fr);gap:10px}.quick-actions button{min-height:126px;display:grid;grid-template-columns:auto 1fr auto;align-content:start;gap:11px;padding:16px;background:var(--surface);border:1px solid var(--border);box-shadow:0 3px 12px #17221f06}.quick-actions button:hover{border-color:#a5c7b7;background:#fff;transform:translateY(-2px);box-shadow:0 8px 20px #17221f0d}.quick-actions button>svg{align-self:center}.quick-actions strong{line-height:1.3}.quick-actions small{line-height:1.45}.quick-icon{width:36px;height:36px;background:#e5f1eb}.composer{border-radius:14px;box-shadow:0 14px 34px #17221f16}.answer-document{border-radius:10px;box-shadow:0 12px 30px #17221f0a}.evidence{background:#f4f7f4}.evidence-note{background:#edf5f9;color:#3269c8}.sidebar{background:#f5f7f4}.nav-item.active{box-shadow:inset 3px 0 0 var(--forest)}@media(max-width:800px){.header-context{display:none}.conversation-meta{display:flex;justify-content:space-between;align-items:center;margin-top:13px}.conversation-header{padding-bottom:18px}.quick-actions{grid-template-columns:1fr;margin-top:20px}.quick-actions button{min-height:0}.care-mode{padding:6px 8px}.response-count{margin-top:0}.main-panel{padding-top:22px}.composer{border-radius:13px;padding:13px 13px 10px}}
 
 .mobile-sidebar-head{display:none}
