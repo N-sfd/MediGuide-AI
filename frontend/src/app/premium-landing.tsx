@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, ShieldCheck, X } from "lucide-react";
-import { BrandLogo } from "./brand-logo";
+import { BrandLogo, BrandMark, MEDIGUIDE_TAGLINE } from "./brand-logo";
 import {
   ConnectedRecordSection,
   DocumentWorkflow,
@@ -173,9 +173,15 @@ export function PremiumLanding({ onStart }: { onStart?: (view?: string, action?:
 
       <footer className="landing-footer">
         <div className="footer-brand">
-          {/* variant="full" already renders the tagline baked into the
-              lockup image — a separate caption here just repeated it. */}
-          <BrandLogo variant="full" className="brand-logo-footer" />
+          {/* Built from the live SVG mark + text instead of the raster
+              variant="full" lockup — that image is a JPG (no transparency)
+              with a white card baked in behind it and a fixed, tiny tagline
+              size, neither of which can be adjusted from a flattened image. */}
+          <div className="footer-brand-mark">
+            <BrandMark className="footer-brand-icon" />
+            <span className="footer-brand-title">MediGuide</span>
+          </div>
+          <p className="footer-brand-tagline">{MEDIGUIDE_TAGLINE}</p>
         </div>
         <nav aria-label="Footer">
           <button type="button" className="footer-link-btn" onClick={() => scrollTo("connected")}>

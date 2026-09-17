@@ -68,12 +68,30 @@
   font-size: 15px;
 }
 
-.brand-logo-footer {
-  height: auto;
-  max-width: 280px;
-  background: #fff;
-  border-radius: 8px;
-  padding: 8px 10px;
+.footer-brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-brand-icon {
+  width: 34px;
+  height: 41px;
+}
+
+.footer-brand-title {
+  font: 800 24px / 1 var(--pl-sans);
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.footer-brand-tagline {
+  margin: 10px 0 0;
+  color: #9eb5aa;
+  font: 700 12px / 1.4 var(--pl-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  max-width: 26rem;
 }
 
 .landing-nav {
