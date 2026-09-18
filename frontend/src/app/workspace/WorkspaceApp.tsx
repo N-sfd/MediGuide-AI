@@ -382,7 +382,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     setMessages(nextHistory); setAnswer(""); setAnswerStatus(""); setSources([]);
     try {
       const response = await fetch(`${API_URL}/api/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, history: messages, answer_detail: answerDetail, reading_level: readingLevel }) });
-      if (!response.ok || !response.body) { const data = await response.json().catch(() => ({})); throw new Error(data.detail || "The local AI service is unavailable."); }
+      if (!response.ok || !response.body) { const data = await response.json().catch(() => ({})); throw new Error(data?.error?.message || data.detail || "The local AI service is unavailable."); }
       let finalAnswer = ""; let finalSources: Source[] = []; let finalStatus: AnswerStatus = "answered";
       for await (const event of readSseEvents(response)) {
         if (event.type === "stage") setLoadingStage(event.stage + "...");
@@ -835,7 +835,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         body: JSON.stringify({ question: docQuestion.trim() || undefined }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not generate an explanation.");
+      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Could not generate an explanation.");
       setDocExplain(data);
       if (demoGuide) {
         setDemoGuide("Step 4 of 4 — Source Evidence: Citations in the explanation link to approved educational sources. Lab values still drill back to the original report page.");
@@ -875,7 +875,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     try {
       const response = await fetch(`${API_URL}/api/medications/v2/upload`, { method: "POST", body: form });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Label analysis failed.");
+      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Label analysis failed.");
       setMedState(data); setMedFields(data.fields || []);
     } catch (err) {
       if (!API_URL) setError(API_CONFIGURATION_MESSAGE);
@@ -894,7 +894,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
     try {
       const response = await fetch(`${API_URL}/api/medications/v2/text`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Label analysis failed.");
+      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Label analysis failed.");
       setMedState(data); setMedFields(data.fields || []);
     } catch (err) {
       if (!API_URL) setError(API_CONFIGURATION_MESSAGE);
@@ -919,7 +919,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         body: JSON.stringify({ fields: medFields, reviewed_name_strength_instructions: true }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not confirm this medication.");
+      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Could not confirm this medication.");
       setMedFields(data.fields || medFields); setMedConfirmed(true);
     } catch (err) {
       if (!API_URL) setError(API_CONFIGURATION_MESSAGE);
@@ -940,7 +940,7 @@ export default function WorkspaceApp({ initialView, initialAction }: { initialVi
         body: JSON.stringify({ question: medQuestion.trim() }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not generate medication information.");
+      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Could not generate medication information.");
       setMedInfo(data);
     } catch (err) {
       if (!API_URL) setError(API_CONFIGURATION_MESSAGE);
