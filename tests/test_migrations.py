@@ -67,6 +67,15 @@ def _indexes(db_path: Path, table: str) -> list[str]:
         con.close()
 
 
+def _schema_signature(db_path: Path) -> dict[str, list[str]]:
+    """Tables plus each table's index names — a finer-grained fingerprint
+    than table names alone, since an index-only migration (e.g.
+    005_timeline_search_indexes) changes the schema without adding or
+    removing a single table."""
+    tables = _table_names(db_path)
+    return {table: sorted(_indexes(db_path, table)) for table in sorted(tables)}
+
+
 def test_upgrade_head_creates_imaging_schema(tmp_path):
     db_path = tmp_path / "migration_test.db"
     _run_alembic("upgrade", "head", db_path=db_path)
@@ -95,18 +104,23 @@ def test_downgrade_then_upgrade_again_is_idempotent(tmp_path):
     added on top (it already did once: this test used to assert imaging
     tables specifically disappeared on the first downgrade, which broke
     the moment 004_medications became head instead of 003_imaging). Instead
-    it checks the general property: one step back removes something
-    without touching earlier, stable migrations, and a full round trip
-    restores the exact same schema."""
+    it checks the general property: one step back changes the schema
+    (fewer tables, or — since 005_timeline_search_indexes is index-only —
+    fewer indexes on an unchanged table set) without touching earlier,
+    stable migrations, and a full round trip restores the exact same
+    schema."""
     db_path = tmp_path / "migration_roundtrip.db"
 
     _run_alembic("upgrade", "head", db_path=db_path)
     tables_at_head = _table_names(db_path)
+    schema_at_head = _schema_signature(db_path)
     assert {"imaging_studies", "imaging_series", "imaging_report_sections"} <= tables_at_head
 
     _run_alembic("downgrade", "-1", db_path=db_path)
     tables_after_downgrade = _table_names(db_path)
-    assert tables_after_downgrade < tables_at_head
+    schema_after_downgrade = _schema_signature(db_path)
+    assert tables_after_downgrade <= tables_at_head
+    assert schema_after_downgrade != schema_at_head
     assert {"documents", "processing_jobs", "imaging_studies"} <= tables_after_downgrade
 
     _run_alembic("downgrade", "base", db_path=db_path)
@@ -114,6 +128,7 @@ def test_downgrade_then_upgrade_again_is_idempotent(tmp_path):
 
     _run_alembic("upgrade", "head", db_path=db_path)
     assert _table_names(db_path) == tables_at_head
+    assert _schema_signature(db_path) == schema_at_head
 
 
 def test_cascade_delete_removes_dependent_rows(tmp_path):

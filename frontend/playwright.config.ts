@@ -67,7 +67,13 @@ export default defineConfig({
       command: `npx next dev -p ${FRONTEND_PORT} -H localhost`,
       cwd: __dirname,
       port: FRONTEND_PORT,
-      env: { ...process.env, NEXT_PUBLIC_API_URL: `http://127.0.0.1:${BACKEND_PORT}` },
+      env: {
+        ...process.env,
+        NEXT_PUBLIC_API_URL: `http://127.0.0.1:${BACKEND_PORT}`,
+        // Small page size so timeline-pagination.spec.ts can exercise
+        // "Load more" without seeding 25+ records through real UI flows.
+        NEXT_PUBLIC_TIMELINE_PAGE_SIZE: "3",
+      },
       reuseExistingServer: false,
       timeout: 60_000,
       stdout: "pipe",

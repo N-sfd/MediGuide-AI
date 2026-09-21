@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
-import { generateReportPdf, sidebarImagingNav } from "./helpers";
+import { generateReportPdf } from "./helpers";
 
 const FIXTURES_DIR = path.join(__dirname, ".scratch", "fixtures");
 
@@ -12,9 +12,13 @@ test.beforeAll(() => {
 test.describe("Health Timeline", () => {
   test("shows confirmed items and cross-links into their real detail views", async ({ page }) => {
     // Seed one confirmed, verified imaging study through the real Imaging flow.
-    await page.goto("/workspace");
-    await expect(sidebarImagingNav(page)).toBeEnabled();
-    await sidebarImagingNav(page).click();
+    // Navigating straight to /workspace/imaging (rather than /workspace,
+    // which client-redirects to /workspace/home on mount) avoids a race
+    // between that redirect and an immediate sidebar click — one that gets
+    // more likely to lose the race as the shared e2e DB accumulates more
+    // records from other spec files and API responses slow down.
+    await page.goto("/workspace/imaging");
+    await expect(page.getByRole("button", { name: "Add imaging study" })).toBeEnabled();
     await page.getByRole("button", { name: "Add imaging study" }).click();
     await page.locator(".imaging-add-form select").selectOption("ultrasound");
     await page.getByPlaceholder("e.g. Right knee").fill("Abdomen");
@@ -51,5 +55,17 @@ test.describe("Health Timeline", () => {
     // dismissible error banner never appears when the API is healthy.
     await page.locator("aside").getByRole("button", { name: "Health Timeline", exact: true }).click();
     await expect(page.getByText("Something needs attention")).toHaveCount(0);
+
+    // Filter bar: switching to "Labs" hides the imaging entry; "All" (via
+    // Clear filters) brings it back.
+    await expect(page.locator(".timeline-entry").filter({ hasText: "Ultrasound" })).toBeVisible();
+    await page.getByRole("tab", { name: "Labs" }).click();
+    await expect(page).toHaveURL(/type=laboratory/);
+    await expect(page.locator(".timeline-entry").filter({ hasText: "Ultrasound" })).toHaveCount(0);
+    // Filtering to a type with no matches also triggers the empty state's
+    // own "Clear filters" button, so scope to the persistent filter bar's.
+    await page.locator(".timeline-filter-fields").getByRole("button", { name: "Clear filters" }).click();
+    await expect(page).not.toHaveURL(/type=laboratory/);
+    await expect(page.locator(".timeline-entry").filter({ hasText: "Ultrasound" })).toBeVisible();
   });
 });

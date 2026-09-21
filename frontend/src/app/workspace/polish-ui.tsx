@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
-import { Check, Circle, X } from "lucide-react";
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import Link from "next/link";
+import { Activity, Check, Circle, RefreshCw, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { AsyncDataState } from "../../lib/useAsyncData";
 
 export type ToastTone = "success" | "info" | "error";
 
@@ -201,4 +204,249 @@ export function friendlyComponentStatus(status: string, detail = "") {
   if (status === "ready") return "Available";
   if ((detail || "").toLowerCase().includes("degraded") || status === "degraded") return "Limited";
   return "Unavailable";
+}
+
+export function ServiceError({
+  title,
+  message,
+  onRetry,
+  onSystem,
+}: {
+  title: string;
+  message: string;
+  onRetry?: () => void;
+  onSystem?: () => void;
+}) {
+  return (
+    <div className="service-error">
+      <Activity size={19} />
+      <div>
+        <strong>{title}</strong>
+        <p>{message}</p>
+      </div>
+      <div className="service-error-actions">
+        {onRetry && (
+          <button type="button" onClick={onRetry}>
+            <RefreshCw size={15} /> Retry
+          </button>
+        )}
+        {onSystem && (
+          <button type="button" onClick={onSystem}>
+            <Activity size={15} /> System status
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function MetricCard({
+  label,
+  value,
+  icon: Icon,
+  href,
+  hint,
+}: {
+  label: string;
+  value: number | string;
+  icon: LucideIcon;
+  href?: string;
+  hint?: string;
+}) {
+  const content = (
+    <>
+      <div className="metric-card-icon">
+        <Icon size={18} />
+      </div>
+      <div className="metric-card-body">
+        <strong className="metric-card-value">{value}</strong>
+        <span className="metric-card-label">{label}</span>
+        {hint ? <small className="metric-card-hint">{hint}</small> : null}
+      </div>
+    </>
+  );
+  if (href) {
+    return (
+      <Link href={href} className="metric-card metric-card-link">
+        {content}
+      </Link>
+    );
+  }
+  return <div className="metric-card">{content}</div>;
+}
+
+/**
+ * Renders one of loading/error/empty/ready for an `useAsyncData` state,
+ * so every list-fetch view gets the same distinguishable states instead of
+ * each hand-rolling its own try/catch-to-empty-array pattern.
+ */
+export function LoadState<T>({
+  state,
+  isEmpty,
+  loading,
+  emptyTitle = "Nothing here yet.",
+  emptyBody = "",
+  errorTitle = "This couldn't be loaded.",
+  onRetry,
+  children,
+}: {
+  state: AsyncDataState<T>;
+  isEmpty?: (data: T) => boolean;
+  loading?: ReactNode;
+  emptyTitle?: string;
+  emptyBody?: string;
+  errorTitle?: string;
+  onRetry?: () => void;
+  children: (data: T) => ReactNode;
+}) {
+  if (state.status === "loading") {
+    return loading ? (
+      <>{loading}</>
+    ) : (
+      <div className="load-state-loading" role="status" aria-live="polite" aria-label="Loading">
+        <span className="load-skeleton" />
+        <span className="load-skeleton" />
+        <span className="load-skeleton short" />
+      </div>
+    );
+  }
+  if (state.status === "error") {
+    return <ServiceError title={errorTitle} message={state.error} onRetry={onRetry} />;
+  }
+  if (isEmpty?.(state.data)) {
+    return <EmptyState title={emptyTitle} body={emptyBody} />;
+  }
+  return <>{children(state.data)}</>;
+}
+
+// --------------------------------------------------------------------------
+// Core primitives: Button, Input, Table, Tabs, Drawer, StatusChip, Skeleton.
+// Reuse the app's existing forest-button/quiet-button/drawer/status-chip
+// classes so adopting these doesn't introduce a second visual language —
+// it just gives that language a typed, reusable component surface.
+// --------------------------------------------------------------------------
+
+export type ButtonVariant = "primary" | "secondary" | "destructive";
+
+export function Button({
+  variant = "secondary",
+  icon: Icon,
+  children,
+  className = "",
+  ...rest
+}: {
+  variant?: ButtonVariant;
+  icon?: LucideIcon;
+  children?: ReactNode;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
+  const base = variant === "primary" ? "forest-button" : variant === "destructive" ? "quiet-button destructive-confirm" : "quiet-button";
+  return (
+    <button type="button" className={`${base} ${className}`.trim()} {...rest}>
+      {Icon ? <Icon size={15} /> : null}
+      {children}
+    </button>
+  );
+}
+
+export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={`ui-input ${className}`.trim()} {...rest} />;
+}
+
+export function Table({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div className="data-table-wrap">
+      <table className={`data-table ${className}`.trim()}>{children}</table>
+    </div>
+  );
+}
+
+export function Tabs({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { key: string; label: string }[];
+  active: string;
+  onChange: (key: string) => void;
+}) {
+  return (
+    <div className="ui-tabs" role="tablist">
+      {tabs.map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.key}
+          className={active === tab.key ? "ui-tab active" : "ui-tab"}
+          onClick={() => onChange(tab.key)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Shared drawer chrome (backdrop + panel + close button + Escape-to-close +
+ * focus return) — consolidates what Privacy/HelpDrawer/SettingsDrawer/Health
+ * each hand-rolled separately.
+ */
+export function Drawer({
+  onClose,
+  eyebrow,
+  title,
+  children,
+  className = "",
+  labelledBy,
+}: {
+  onClose: () => void;
+  eyebrow?: string;
+  title?: string;
+  children: ReactNode;
+  className?: string;
+  labelledBy?: string;
+}) {
+  const titleId = useId();
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previouslyFocused.current?.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose} role="presentation">
+      <aside
+        className={`drawer ${className}`.trim()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy || (title ? titleId : undefined)}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button className="drawer-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
+        {title ? <h2 id={titleId}>{title}</h2> : null}
+        {children}
+      </aside>
+    </div>
+  );
+}
+
+export type StatusTone = "neutral" | "success" | "warning" | "error";
+
+export function StatusChip({ label, tone = "neutral" }: { label: string; tone?: StatusTone }) {
+  return <span className={`status-chip status-chip-${tone}`}>{label}</span>;
+}
+
+export function Skeleton({ width, className = "" }: { width?: string | number; className?: string }) {
+  return <span className={`load-skeleton ${className}`.trim()} style={width ? { width } : undefined} />;
 }

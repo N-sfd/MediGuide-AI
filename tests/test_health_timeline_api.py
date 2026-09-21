@@ -15,7 +15,7 @@ def _make_pdf(text: str) -> bytes:
 def test_timeline_empty_by_default(api_client):
     response = api_client.get("/api/timeline")
     assert response.status_code == 200
-    assert response.json() == {"entries": []}
+    assert response.json() == {"entries": [], "next_cursor": None, "total_matched": 0}
 
 
 def test_timeline_reflects_a_confirmed_imaging_study(api_client):
@@ -109,3 +109,79 @@ def test_health_isolates_timeline_from_core(api_client, monkeypatch):
     body = response.json()
     assert body["statuses"]["timeline"]["status"] == "unavailable"
     assert body["status"] == "ok"
+
+
+# --------------------------------------------------------------------------
+# Phase 2: filters, pagination
+# --------------------------------------------------------------------------
+
+
+def _confirm_medication(api_client, medication_id: str, name: str) -> None:
+    import src.medication_workspace as medication_workspace_module
+
+    fields = [
+        {"key": "medication_name", "label": "Medication name", "value": name, "confidence": "clearly_visible"},
+    ]
+    state = medication_workspace_module.MedicationState(
+        medication_id=medication_id,
+        source="typed",
+        status="review_required",
+        fields=[medication_workspace_module.MedicationField(**f) for f in fields],
+        confirmed=False,
+    )
+    medication_workspace_module._save_state(state)
+    response = api_client.post(
+        f"/api/medications/v2/{medication_id}/confirm",
+        json={"fields": fields, "reviewed_name_strength_instructions": True},
+    )
+    assert response.status_code == 200
+
+
+def test_timeline_endpoint_accepts_type_date_search_params(api_client):
+    _confirm_medication(api_client, "med-1", "Amoxicillin")
+    _confirm_medication(api_client, "med-2", "Lisinopril")
+
+    by_type = api_client.get("/api/timeline", params={"event_type": "medication"}).json()
+    assert all(entry["category"] == "medication" for entry in by_type["entries"])
+
+    by_search = api_client.get("/api/timeline", params={"search": "amoxicillin"}).json()
+    assert len(by_search["entries"]) == 1
+    assert by_search["entries"][0]["subtitle"] == "Amoxicillin"
+
+    no_match = api_client.get("/api/timeline", params={"search": "ibuprofen"}).json()
+    assert no_match["entries"] == []
+
+
+def test_timeline_endpoint_limit_bounds(api_client):
+    assert api_client.get("/api/timeline", params={"limit": 0}).status_code == 422
+    assert api_client.get("/api/timeline", params={"limit": 101}).status_code == 422
+    assert api_client.get("/api/timeline", params={"limit": 100}).status_code == 200
+
+
+def test_timeline_endpoint_cursor_round_trip(api_client):
+    _confirm_medication(api_client, "med-1", "Amoxicillin")
+    _confirm_medication(api_client, "med-2", "Lisinopril")
+
+    page_one = api_client.get("/api/timeline", params={"limit": 1}).json()
+    assert len(page_one["entries"]) == 1
+    assert page_one["next_cursor"] is not None
+
+    page_two = api_client.get(
+        "/api/timeline", params={"limit": 1, "cursor": page_one["next_cursor"]}
+    ).json()
+    assert len(page_two["entries"]) == 1
+    assert page_two["entries"][0]["entry_id"] != page_one["entries"][0]["entry_id"]
+    # Back-compat: the envelope's `entries` key is still present and shaped
+    # the same as before pagination existed.
+    assert isinstance(page_two["entries"], list)
+
+
+def test_recent_history_limit_5_matches_full_timeline_prefix(api_client):
+    for i in range(7):
+        _confirm_medication(api_client, f"med-{i}", f"Medication {i}")
+
+    full = api_client.get("/api/timeline").json()["entries"]
+    limited = api_client.get("/api/timeline", params={"limit": 5}).json()["entries"]
+
+    assert len(limited) == 5
+    assert [e["entry_id"] for e in limited] == [e["entry_id"] for e in full[:5]]

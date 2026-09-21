@@ -48,9 +48,41 @@ export function generateReportPdf(
   execFileSync(PYTHON, args, { cwd: REPO_ROOT, env: scratchEnv() });
 }
 
+export function generateLabReportPdf(
+  outputPath: string,
+  opts: {
+    testName?: string;
+    value?: string;
+    unit?: string;
+    referenceRange?: string;
+    collectionDate?: string;
+  } = {},
+): void {
+  const args = [
+    path.join(REPO_ROOT, "scripts", "generate_synthetic_lab_report.py"),
+    "--output",
+    outputPath,
+  ];
+  if (opts.testName) args.push("--test-name", opts.testName);
+  if (opts.value) args.push("--value", opts.value);
+  if (opts.unit) args.push("--unit", opts.unit);
+  if (opts.referenceRange) args.push("--reference-range", opts.referenceRange);
+  if (opts.collectionDate) args.push("--collection-date", opts.collectionDate);
+
+  execFileSync(PYTHON, args, { cwd: REPO_ROOT, env: scratchEnv() });
+}
+
 export function seedDemoImaging(): void {
   execFileSync(PYTHON, [path.join(REPO_ROOT, "scripts", "seed_demo_imaging.py")], {
     cwd: REPO_ROOT,
     env: scratchEnv(),
   });
+}
+
+export function seedPaginationImaging(token: string, count = 4): void {
+  execFileSync(
+    PYTHON,
+    [path.join(REPO_ROOT, "scripts", "seed_e2e_pagination_imaging.py"), "--token", token, "--count", String(count)],
+    { cwd: REPO_ROOT, env: scratchEnv() },
+  );
 }

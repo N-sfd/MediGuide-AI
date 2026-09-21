@@ -10,19 +10,35 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from src.database.session import probe_database, session_scope
-from src.database.timeline_repository import get_timeline_entries
+from src.database.timeline_repository import get_timeline_entries, list_timeline_entries
 
 router = APIRouter(prefix="/api/timeline", tags=["Health Timeline"])
 
 
 @router.get("")
-async def list_timeline_entries() -> dict[str, Any]:
+async def list_timeline_entries_endpoint(
+    event_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    search: str | None = None,
+    limit: int = 25,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100.")
     with session_scope() as session:
-        entries = get_timeline_entries(session)
-    return {"entries": entries}
+        return list_timeline_entries(
+            session,
+            event_type=event_type,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+            limit=limit,
+            cursor=cursor,
+        )
 
 
 def probe_timeline() -> tuple[bool, str]:

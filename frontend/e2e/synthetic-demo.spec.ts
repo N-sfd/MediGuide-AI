@@ -44,9 +44,9 @@ test.describe("Synthetic demo — canonical journey", () => {
     await page.getByRole("button", { name: "Confirm reviewed items" }).click();
     await expect(page.locator(".eyebrow", { hasText: "CONFIRMED" })).toBeVisible({ timeout: 15_000 });
 
-    // Lab Timeline: three synthetic dates, selectable, with source drill-down.
-    await page.locator("aside").getByRole("button", { name: "Lab Timeline", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Lab Timeline" })).toBeVisible();
+    // Labs: three synthetic dates, selectable, with source drill-down.
+    await page.locator("aside").getByRole("button", { name: "Labs", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Labs" })).toBeVisible();
     const points = page.locator(".lab-point");
     await expect(points).toHaveCount(3, { timeout: 15_000 });
 

@@ -33,8 +33,8 @@ class Document(Base):
     content_type: Mapped[str] = mapped_column(String(128), default="")
     page_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(64), default="uploaded")
-    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
-    report_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    report_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     storage_path: Mapped[str] = mapped_column(String(1024), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -181,7 +181,7 @@ class LabObservation(Base):
     )
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     test_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    test_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    test_name: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     value_numeric: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     value_text: Mapped[str] = mapped_column(String(128), default="")
     unit: Mapped[str] = mapped_column(String(64), default="")
@@ -221,7 +221,9 @@ class ImagingStudy(Base):
     report_document_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
-    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    verification_status: Mapped[str] = mapped_column(
+        String(32), default="unverified", index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -283,7 +285,9 @@ class ImagingReportSection(Base):
     original_text: Mapped[str] = mapped_column(Text, default="")
     page_number: Mapped[int] = mapped_column(Integer, default=1)
     source_text: Mapped[str] = mapped_column(Text, default="")
-    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    verification_status: Mapped[str] = mapped_column(
+        String(32), default="unverified", index=True
+    )
     extractor_version: Mapped[str] = mapped_column(String(32), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -308,7 +312,7 @@ class MedicationRecord(Base):
     __tablename__ = "medication_records"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    medication_name: Mapped[str] = mapped_column(String(256), default="")
+    medication_name: Mapped[str] = mapped_column(String(256), default="", index=True)
     strength: Mapped[str] = mapped_column(String(128), default="")
     form: Mapped[str] = mapped_column(String(128), default="")
     instructions: Mapped[str] = mapped_column(Text, default="")
@@ -318,7 +322,7 @@ class MedicationRecord(Base):
     filename: Mapped[str] = mapped_column(String(512), default="")
     other_visible_text: Mapped[str] = mapped_column(Text, default="")
     confirmed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -1,0 +1,119 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  FileText,
+  FlaskConical,
+  Folder,
+  Home as HomeIcon,
+  Milestone,
+  Pill,
+  PlayCircle,
+  Plus,
+  ScanLine,
+  ShieldCheck,
+  Stethoscope,
+  X,
+} from "lucide-react";
+import { BrandLogo } from "../../brand-logo";
+import { useWorkspaceContext } from "../_state/WorkspaceStateProvider";
+
+function NavItem({
+  href,
+  label,
+  icon: Icon,
+  primary,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  primary?: boolean;
+  onNavigate: (href: string) => void;
+}) {
+  const pathname = usePathname();
+  const active = pathname === href;
+  return (
+    <button
+      className={`nav-item${active ? " active" : ""}${primary ? " nav-item-primary" : ""}`}
+      onClick={() => onNavigate(href)}
+    >
+      <Icon size={17} />{label}
+    </button>
+  );
+}
+
+export function Sidebar({ onClose }: { onClose: () => void }) {
+  const { setMobileNavOpen, clearSession, setPrivacyOpen, router } = useWorkspaceContext();
+
+  function navigate(href: string) {
+    router.push(href);
+    setMobileNavOpen(false);
+  }
+
+  return (
+    <aside className="sidebar workspace-sidebar">
+      <div className="mobile-sidebar-head">
+        <span>Navigate</span>
+        <button className="icon-button" title="Close navigation" aria-label="Close navigation" onClick={onClose}><X size={18} /></button>
+      </div>
+      <div className="sidebar-brand-row">
+        <div className="sidebar-brand-block">
+          <BrandLogo variant="wordmark" className="brand-logo-sidebar" />
+        </div>
+        <button className="icon-button sidebar-add" title="Upload a document" aria-label="Upload a document" onClick={() => navigate("/workspace/documents?action=upload")}>
+          <Plus size={16} />
+        </button>
+      </div>
+      <button className="new-conversation" onClick={() => { clearSession(); setMobileNavOpen(false); }}><Plus size={17} /> New</button>
+      <button className="nav-item demo-nav-cta" onClick={() => navigate("/workspace/demo")}>
+        <PlayCircle size={17} /> Try synthetic data
+      </button>
+
+      <div className="sidebar-label">OVERVIEW</div>
+      <nav>
+        <NavItem href="/workspace/home" label="Home" icon={HomeIcon} primary onNavigate={navigate} />
+        <NavItem href="/workspace/timeline" label="Health Timeline" icon={Milestone} primary onNavigate={navigate} />
+      </nav>
+
+      <div className="sidebar-label">RECORDS</div>
+      <nav>
+        <NavItem href="/workspace/documents" label="Documents" icon={FileText} primary onNavigate={navigate} />
+        <NavItem href="/workspace/labs" label="Labs" icon={FlaskConical} onNavigate={navigate} />
+        <NavItem href="/workspace/imaging" label="Imaging" icon={ScanLine} onNavigate={navigate} />
+        <NavItem href="/workspace/medications" label="Medications" icon={Pill} onNavigate={navigate} />
+      </nav>
+
+      <div className="sidebar-label">TOOLS</div>
+      <nav>
+        <NavItem href="/workspace/ask" label="Ask MediGuide" icon={HomeIcon} onNavigate={navigate} />
+        <NavItem href="/workspace/visit" label="Visit Preparation" icon={Stethoscope} onNavigate={navigate} />
+        <button className="nav-item nav-item-disabled" disabled title="Coming soon">
+          <Folder size={17} /> Collections <small>Soon</small>
+        </button>
+      </nav>
+
+      <div className="sidebar-label knowledge-label">KNOWLEDGE</div>
+      <nav>
+        <NavItem href="/workspace/sources" label="Sources" icon={BookOpen} onNavigate={navigate} />
+      </nav>
+
+      <div className="sidebar-label knowledge-label">SYSTEM</div>
+      <nav>
+        <button className="nav-item" onClick={() => { setPrivacyOpen(true); setMobileNavOpen(false); }}><ShieldCheck size={17} /> Privacy</button>
+        <NavItem href="/workspace/system" label="System Status" icon={Activity} onNavigate={navigate} />
+      </nav>
+
+      <div className="sidebar-footer">
+        <span className="status-dot" />
+        <div>
+          <strong>Document → Source</strong>
+          <small>Verify, timeline, then trace</small>
+        </div>
+      </div>
+    </aside>
+  );
+}

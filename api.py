@@ -44,6 +44,7 @@ from src.document_intelligence import router as document_intelligence_router
 from src.document_loader import load_metadata
 from src.health_timeline import probe_timeline
 from src.health_timeline import router as health_timeline_router
+from src.search import router as search_router
 from src.imaging import probe_imaging_documents, probe_imaging_viewer
 from src.imaging import router as imaging_router
 from src.medication_workspace import router as medication_workspace_router
@@ -99,6 +100,7 @@ app.include_router(medication_workspace_router)
 app.include_router(labs_router)
 app.include_router(imaging_router)
 app.include_router(health_timeline_router)
+app.include_router(search_router)
 
 install_error_handlers(app)
 
