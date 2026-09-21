@@ -201,18 +201,42 @@ def start_job_attempt(session: Session, job: ProcessingJob, *, processor_version
     job.safe_error_message = ""
     job.technical_error = ""
     job.retryable = False
+    job.retry_attempt = 0
+    job.retry_max = 0
     job.processor_version = processor_version
     session.flush()
 
 
 def update_job_stage(session: Session, job: ProcessingJob, stage: str) -> None:
     job.stage = stage
+    if stage != "waiting_for_service":
+        # Leaving the waiting state (a page moved past its stuck Ollama
+        # call, or a fresh attempt began) — the in-flight retry counter no
+        # longer describes the current stage, so clear it rather than show
+        # a stale "Attempt 2 of 3" once things are moving again.
+        job.retry_attempt = 0
+        job.retry_max = 0
+    session.flush()
+
+
+def record_retry_progress(
+    session: Session, job: ProcessingJob, *, attempt: int, max_attempts: int
+) -> None:
+    """Records live automatic-retry progress for the current attempt —
+    distinct from ``attempt_count``, which only increments across manual
+    retries. Reset whenever the job leaves the "waiting_for_service" stage
+    (see ``update_job_stage``)."""
+    job.stage = "waiting_for_service"
+    job.retry_attempt = attempt
+    job.retry_max = max_attempts
     session.flush()
 
 
 def complete_job(session: Session, job: ProcessingJob) -> None:
     job.status = "completed"
     job.stage = "review_required"
+    job.retry_attempt = 0
+    job.retry_max = 0
     job.completed_at = _utcnow()
     session.flush()
 

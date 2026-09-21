@@ -22,6 +22,7 @@ export function ImagingStudyDetail({
   setViewerExpanded,
   transientStatus,
   processingError,
+  processingProgress,
   confirming,
   onBack,
   onOpenHistory,
@@ -46,6 +47,7 @@ export function ImagingStudyDetail({
   setViewerExpanded: (value: boolean) => void;
   transientStatus: "processing" | "failed" | null;
   processingError: string;
+  processingProgress: { stage: string; retryAttempt: number; retryMax: number } | null;
   confirming: boolean;
   onBack: () => void;
   onOpenHistory: () => void;
@@ -108,7 +110,7 @@ export function ImagingStudyDetail({
         </button>
       </div>
 
-      {transientStatus === "processing" && <ImagingProcessingState />}
+      {transientStatus === "processing" && <ImagingProcessingState progress={processingProgress} />}
       {transientStatus === "failed" && (
         <ImagingProcessingFailedState
           message={processingError}

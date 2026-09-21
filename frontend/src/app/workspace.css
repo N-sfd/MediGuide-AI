@@ -1350,6 +1350,12 @@
 .process-checklist li.done { color: var(--forest-dark); }
 .process-checklist li.current { color: var(--ink); }
 .process-checklist li.failed { color: #9a4f3f; }
+.process-checklist-attempt {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font: 600 12px var(--sans);
+}
 
 .empty-state-panel {
   margin: 18px 0;

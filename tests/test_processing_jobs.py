@@ -64,7 +64,7 @@ def test_transient_failure_marks_job_retryable(db_session):
         run_extraction_job(document_id="doc-3", job_type="document_extraction", work=work)
 
     assert exc_info.value.retryable is True
-    assert exc_info.value.code == "DOCUMENT_EXTRACTION_TIMEOUT"
+    assert exc_info.value.code == "AI_SERVICE_TEMPORARILY_UNAVAILABLE"
 
     with db_session.session_scope() as session:
         job = get_or_create_job(session, document_id="doc-3", job_type="document_extraction")
@@ -173,3 +173,95 @@ def test_repeated_confirm_does_not_duplicate_observations(db_session):
     with db_session.session_scope() as session:
         document = session.get(Document, "doc-7")
         assert len(document.lab_observations) == 1
+
+
+def test_retry_attempt_progress_persisted_while_waiting_for_service(db_session):
+    """A caller's set_stage("waiting_for_service", retry_attempt=..., retry_max=...)
+    — normally driven by call_with_retry's on_retry hook — must be visible
+    on the job row for a polling client to render "Attempt N of M". Failing
+    right after (rather than completing) keeps this observable: a
+    successful completion clears the counter (see the "clears" test below),
+    so this checks the value the way a poll mid-retry actually would."""
+    with db_session.session_scope() as session:
+        create_uploaded_document(session, document_id="doc-8", filename="a.pdf")
+
+    def work(set_stage):
+        set_stage("reading")
+        set_stage("waiting_for_service", retry_attempt=1, retry_max=3)
+        raise TransientProcessingError("still down")
+
+    with pytest.raises(MediGuideError):
+        run_extraction_job(document_id="doc-8", job_type="document_extraction", work=work)
+
+    with db_session.session_scope() as session:
+        job = get_or_create_job(session, document_id="doc-8", job_type="document_extraction")
+        assert job.retry_attempt == 1
+        assert job.retry_max == 3
+
+
+def test_retry_progress_clears_once_stage_moves_past_waiting(db_session):
+    with db_session.session_scope() as session:
+        create_uploaded_document(session, document_id="doc-9", filename="a.pdf")
+
+    def work(set_stage):
+        set_stage("waiting_for_service", retry_attempt=1, retry_max=3)
+        set_stage("extracting")
+        return "done"
+
+    run_extraction_job(document_id="doc-9", job_type="document_extraction", work=work)
+
+    with db_session.session_scope() as session:
+        job = get_or_create_job(session, document_id="doc-9", job_type="document_extraction")
+        # A fresh, non-waiting stage clears the stale attempt counter so a
+        # later poll doesn't show "Attempt 1 of 3" once things are moving
+        # (job.stage itself ends as "review_required" — set by
+        # complete_job() once work() returns successfully).
+        assert job.retry_attempt == 0
+        assert job.retry_max == 0
+
+
+def test_on_stage_hook_mirrors_every_stage_change(db_session):
+    """document_intelligence.py bridges this into its own JSON session
+    state (the actual source of truth its /status route reads from) — this
+    locks in that run_extraction_job calls it for every stage transition,
+    including automatic-retry progress, with the same (stage, attempt,
+    max) shape."""
+    with db_session.session_scope() as session:
+        create_uploaded_document(session, document_id="doc-10", filename="a.pdf")
+
+    seen = []
+
+    def work(set_stage):
+        set_stage("reading")
+        set_stage("waiting_for_service", retry_attempt=2, retry_max=3)
+        return "done"
+
+    run_extraction_job(
+        document_id="doc-10",
+        job_type="document_extraction",
+        work=work,
+        on_stage=lambda stage, attempt, max_attempts: seen.append((stage, attempt, max_attempts)),
+    )
+
+    # The job's initial "validating" stage is set by start_job_attempt()
+    # directly (before set_stage/on_stage exist yet) — only transitions
+    # made through set_stage are mirrored.
+    assert seen == [
+        ("reading", 0, 0),
+        ("waiting_for_service", 2, 3),
+    ]
+
+
+def test_failure_carries_the_stage_it_failed_at(db_session):
+    with db_session.session_scope() as session:
+        create_uploaded_document(session, document_id="doc-11", filename="a.pdf")
+
+    def work(set_stage):
+        set_stage("reading")
+        set_stage("extracting")
+        raise TransientProcessingError("down")
+
+    with pytest.raises(MediGuideError) as exc_info:
+        run_extraction_job(document_id="doc-11", job_type="document_extraction", work=work)
+
+    assert exc_info.value.stage == "extracting"

@@ -18,7 +18,7 @@ export function DocumentsView() {
     suggestDocumentQuestions, prepareVisitFromDocument, askAboutDocument,
     exportDocumentFields, confirmedLabCodes, openLabTimeline, setConfirmResetDocument,
     loadingStage, error, docErrorKind, addConfirmedLabsHint, retryDocumentAction,
-    processStage, processFailed, fieldReviewState, setFieldReviewState,
+    processStage, processFailed, processRetry, fieldReviewState, setFieldReviewState,
     previewZoom, setPreviewZoom, sourceBreadcrumb, setSourceBreadcrumb,
   } = useWorkspaceContext();
 
@@ -68,6 +68,7 @@ export function DocumentsView() {
       onRemove={() => setConfirmResetDocument(true)}
       processStage={processStage}
       processFailed={processFailed}
+      processRetry={processRetry}
       fieldReviewState={fieldReviewState}
       setFieldReviewState={setFieldReviewState}
       previewZoom={previewZoom}

@@ -341,6 +341,43 @@ def _probe_imaging_viewer() -> dict[str, str]:
     return _health_status(ok, detail)
 
 
+def _composite_ai_capability_status(
+    *, storage_ok: bool, storage_detail: str, ai_ready: bool
+) -> dict[str, str]:
+    """Health isolation for an AI-dependent capability: storage/DB being
+    down is a real outage (unavailable); Ollama alone being down only
+    limits that one capability (degraded — the frontend renders this as
+    "Limited", see friendlyComponentStatus in polish-ui.tsx) rather than
+    marking the whole feature, or the whole app, unavailable."""
+    if not storage_ok:
+        return _health_status(False, storage_detail)
+    if not ai_ready:
+        return {"status": "degraded", "detail": "AI extraction unavailable — Ollama unreachable"}
+    return _health_status(True, "Ready")
+
+
+def _probe_medication_labels(reachable: bool, installed: set[str]) -> dict[str, str]:
+    vision_ready = reachable and (
+        VISION_MODEL_NAME in installed or f"{VISION_MODEL_NAME}:latest" in installed
+    )
+    # No dedicated storage layer of its own (see MedicationRecord's
+    # docstring) — the database itself is the only non-Ollama dependency.
+    db_ok, db_detail = probe_database()
+    return _composite_ai_capability_status(
+        storage_ok=db_ok, storage_detail=db_detail, ai_ready=vision_ready
+    )
+
+
+def _probe_imaging_reports(reachable: bool, installed: set[str]) -> dict[str, str]:
+    vision_ready = reachable and (
+        VISION_MODEL_NAME in installed or f"{VISION_MODEL_NAME}:latest" in installed
+    )
+    storage_ok, storage_detail = probe_imaging_documents()
+    return _composite_ai_capability_status(
+        storage_ok=storage_ok, storage_detail=storage_detail, ai_ready=vision_ready
+    )
+
+
 def _probe_timeline() -> dict[str, str]:
     ok, detail = probe_timeline()
     return _health_status(ok, detail)
@@ -373,6 +410,8 @@ def health() -> dict[str, object]:
         "processing_jobs": _probe_processing_jobs(db_ok),
         "imaging_documents": _probe_imaging_documents(),
         "imaging_viewer": _probe_imaging_viewer(),
+        "imaging_reports": _probe_imaging_reports(reachable, installed),
+        "medication_labels": _probe_medication_labels(reachable, installed),
         "timeline": _probe_timeline(),
         "demo_data": _probe_demo_data(),
         "ollama": _health_status(reachable, ollama_detail),
@@ -454,6 +493,16 @@ def system_status() -> dict[str, object]:
                 "name": "Imaging viewer",
                 "key": "imaging_viewer",
                 **statuses["imaging_viewer"],
+            },
+            {
+                "name": "Imaging reports",
+                "key": "imaging_reports",
+                **statuses["imaging_reports"],
+            },
+            {
+                "name": "Medication labels",
+                "key": "medication_labels",
+                **statuses["medication_labels"],
             },
             {
                 "name": "Health Timeline",

@@ -232,7 +232,7 @@ export function Documents({
   selectedSource, setSelectedSource,
   dragging, recentSessions, onOpenSession, onUpload, onLoadSample, demoGuide, onOpenLabsFromDemo, onDrop, onDragEnter, onDragLeave, onFieldChange, onConfirm, onExplain, onSuggestQuestions, onPrepareVisit, onAskAbout, onExportFields, onOpenLabs, onReset,
   loading, error, errorKind, labsHint, confirmedLabCodes, onRetry, onSystem, onRemove,
-  processStage, processFailed, fieldReviewState, setFieldReviewState, previewZoom, setPreviewZoom, sourceBreadcrumb, onClearBreadcrumb, onBackToTimeline,
+  processStage, processFailed, processRetry, fieldReviewState, setFieldReviewState, previewZoom, setPreviewZoom, sourceBreadcrumb, onClearBreadcrumb, onBackToTimeline,
 }: {
   apiUrl: string;
   docState: DocState | null;
@@ -278,6 +278,7 @@ export function Documents({
   onRemove: () => void;
   processStage: ProcessStageId | null;
   processFailed: boolean;
+  processRetry: { attempt: number; max: number } | null;
   fieldReviewState: Record<string, "unverified" | "confirmed" | "corrected" | "rejected">;
   setFieldReviewState: (value: Record<string, "unverified" | "confirmed" | "corrected" | "rejected"> | ((prev: Record<string, "unverified" | "confirmed" | "corrected" | "rejected">) => Record<string, "unverified" | "confirmed" | "corrected" | "rejected">)) => void;
   previewZoom: number;
@@ -334,7 +335,7 @@ export function Documents({
         </div>
       </div>}
       {demoGuide && <p className="demo-guide-banner">{demoGuide}</p>}
-      {(loading || processStage) && <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage("", loading)} failed={processFailed} />}
+      {(loading || processStage) && <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage("", loading)} failed={processFailed} waitingMessage={processRetry ? "Document processing is starting up." : undefined} attempt={processRetry?.attempt} maxAttempts={processRetry?.max} />}
       {loading && !processStage && <div className="processing large"><Sparkles size={18} /> {loading}<i /><i /><i /></div>}
       {error && <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />}
       {errorKind === "extract" && error && <div className="explain-actions"><button type="button" className="quiet-button" onClick={onRemove}>Remove document</button></div>}
@@ -385,7 +386,7 @@ export function Documents({
           <p className="workflow-lead">Processing your document while keeping the original file available.</p>
         </div>
       </div>
-      <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage(docState.status, loading)} failed={processFailed} />
+      <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage(docState.status, loading)} failed={processFailed} waitingMessage={processRetry ? "Document processing is starting up." : undefined} attempt={processRetry?.attempt} maxAttempts={processRetry?.max} />
       {error && <ServiceError title={uploadErrorTitle} message={uploadErrorMessage} onRetry={onRetry} onSystem={onSystem} />}
       {error && (
         <div className="explain-actions">
@@ -425,7 +426,7 @@ export function Documents({
         </div>
       </div>
     )}
-    {(loading || processStage) && <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage(docState.status, loading)} failed={processFailed} />}
+    {(loading || processStage) && <ProcessingChecklist activeStage={processStage || mapStatusToProcessStage(docState.status, loading)} failed={processFailed} waitingMessage={processRetry ? "Document processing is starting up." : undefined} attempt={processRetry?.attempt} maxAttempts={processRetry?.max} />}
     {demoGuide && <p className="demo-guide-banner">{demoGuide}{docConfirmed ? <>{" "}<button type="button" className="quiet-button" onClick={onOpenLabsFromDemo}>Open Labs</button></> : null}</p>}
     {labsHint && <div className="labs-persist-hint-row">
       <p className="labs-persist-hint"><FlaskConical size={14} /> {labsHint}</p>
@@ -1014,7 +1015,7 @@ export function SystemStatusView({ status, health, onRetry }: { status: SystemSt
       byLabel.set(name, { ...component, name });
     }
   }
-  const preferred = ["Document processing", "Document preview", "Educational explanations", "Voice transcription", "Voice playback"];
+  const preferred = ["Document storage", "Document processing", "Document preview", "AI-assisted extraction", "Imaging reports", "Medication labels", "Educational explanations", "Voice transcription", "Voice playback"];
   const components = preferred.map((name) => byLabel.get(name) || { name, key: name, status: "ready", detail: "Service status" });
   const limited = components.some((component) => friendlyComponentStatus(component.status, component.detail) === "Limited" || friendlyComponentStatus(component.status, component.detail) === "Unavailable");
   return <div className="workflow-view system-status-view">

@@ -101,6 +101,10 @@ function useWorkspaceState() {
   const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
   const [processStage, setProcessStage] = useState<ProcessStageId | null>(null);
   const [processFailed, setProcessFailed] = useState(false);
+  // Live automatic-retry progress, polled from /status alongside processStage
+  // above (see processDocument()) — null unless the backend is currently
+  // mid-retry against an unreachable/slow AI service.
+  const [processRetry, setProcessRetry] = useState<{ attempt: number; max: number } | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmDeleteObservationId, setConfirmDeleteObservationId] = useState<string | null>(null);
   const [confirmResetDocument, setConfirmResetDocument] = useState(false);
@@ -290,10 +294,21 @@ function useWorkspaceState() {
       try {
         const statusResponse = await fetch(`${API_URL}/api/documents/v2/${documentId}/status`);
         if (!statusResponse.ok) return;
-        const status = (await statusResponse.json()) as { status?: string; filename?: string };
+        const status = (await statusResponse.json()) as {
+          status?: string;
+          filename?: string;
+          stage?: string;
+          retry_attempt?: number;
+          retry_max?: number;
+        };
         const label = statusLabels[status.status || ""] || "Processing document...";
         setLoadingStage(label);
         setProcessStage(mapStatusToProcessStage(status.status || "", label));
+        setProcessRetry(
+          status.stage === "waiting_for_service" && status.retry_max
+            ? { attempt: status.retry_attempt || 0, max: status.retry_max }
+            : null,
+        );
       } catch {
         /* polling is best-effort */
       }
@@ -315,6 +330,7 @@ function useWorkspaceState() {
       return response.json() as Promise<DocState>;
     } finally {
       if (pollTimer) window.clearInterval(pollTimer);
+      setProcessRetry(null);
     }
   }
 
@@ -729,9 +745,12 @@ function useWorkspaceState() {
     setLoadingStage("Reading the medication label...");
     const form = new FormData(); form.append("file", file);
     try {
-      const response = await fetch(`${API_URL}/api/medications/v2/upload`, { method: "POST", body: form });
+      const response = await fetchWithTimeout(`${API_URL}/api/medications/v2/upload`, { method: "POST", body: form }, 60_000);
+      if (!response.ok) {
+        const apiError = await parseApiError(response, "MediGuide could not read that label.");
+        throw new Error(apiError.message);
+      }
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Label analysis failed.");
       setMedState(data); setMedFields(data.fields || []);
     } catch (err) {
       if (!API_URL) setError(API_CONFIGURATION_MESSAGE);
@@ -748,9 +767,12 @@ function useWorkspaceState() {
     setMedState(null); setMedFields([]); setMedConfirmed(false); setMedReviewChecked(false); setMedInfo(null); setMedQuestion("");
     setLoadingStage("Reading the medication label text...");
     try {
-      const response = await fetch(`${API_URL}/api/medications/v2/text`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const response = await fetchWithTimeout(`${API_URL}/api/medications/v2/text`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, 60_000);
+      if (!response.ok) {
+        const apiError = await parseApiError(response, "MediGuide could not read that label text.");
+        throw new Error(apiError.message);
+      }
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error?.message || data.detail || "Label analysis failed.");
       setMedState(data); setMedFields(data.fields || []);
     } catch (err) {
       if (!API_URL) setError(API_CONFIGURATION_MESSAGE);
@@ -932,6 +954,7 @@ function useWorkspaceState() {
     highlightedFieldId, setHighlightedFieldId,
     processStage, setProcessStage,
     processFailed, setProcessFailed,
+    processRetry,
     toasts, setToasts,
     confirmDeleteObservationId, setConfirmDeleteObservationId,
     confirmResetDocument, setConfirmResetDocument,

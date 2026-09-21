@@ -75,6 +75,31 @@ export function uploadReport(
   ).then((r) => asJson(r, "MediGuide could not read this imaging report."));
 }
 
+export interface ReportProcessingStatus {
+  document_id?: string;
+  status: string;
+  stage: string;
+  retry_attempt: number;
+  retry_max: number;
+  safe_error_message: string;
+}
+
+/** Polling target for a report upload in flight — keyed by study_id, not
+ * document_id, since uploadReport() only learns the document_id once it
+ * resolves (see ImagingStudy.pending_report_document_id's backend
+ * docstring for why). Best-effort: swallow failures so a flaky poll tick
+ * never surfaces as a user-facing error on top of whatever uploadReport()
+ * itself reports. */
+export async function fetchReportStatus(apiUrl: string, studyId: string): Promise<ReportProcessingStatus | null> {
+  try {
+    const response = await fetchWithTimeout(`${apiUrl}/api/imaging/studies/${studyId}/report/status`);
+    if (!response.ok) return null;
+    return (await response.json()) as ReportProcessingStatus;
+  } catch {
+    return null;
+  }
+}
+
 export function fetchSections(apiUrl: string, studyId: string): Promise<{ sections: ReportSection[] }> {
   return fetchWithTimeout(`${apiUrl}/api/imaging/studies/${studyId}/report/sections`).then((r) =>
     asJson(r, "Could not load report sections."),

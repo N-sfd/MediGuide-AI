@@ -118,10 +118,19 @@ export function ProcessingChecklist({
   activeStage,
   failed = false,
   title = "Processing your document",
+  waitingMessage,
+  attempt,
+  maxAttempts,
 }: {
   activeStage: ProcessStageId | null;
   failed?: boolean;
   title?: string;
+  /** Overrides the current stage's label (e.g. "Document processing is
+   * starting up.") while an automatic retry is in flight, without
+   * changing the fixed stage list/order underneath it. */
+  waitingMessage?: string;
+  attempt?: number;
+  maxAttempts?: number;
 }) {
   if (!activeStage) return null;
   const order = PROCESS_STAGES.map((stage) => stage.id);
@@ -137,11 +146,14 @@ export function ProcessingChecklist({
           return (
             <li key={stage.id} className={done ? "done" : current ? (failed ? "failed" : "current") : "pending"}>
               {done ? <Check size={14} /> : current && failed ? <X size={14} /> : <Circle size={14} />}
-              <span>{stage.label}</span>
+              <span>{current && waitingMessage ? waitingMessage : stage.label}</span>
             </li>
           );
         })}
       </ol>
+      {!failed && attempt && maxAttempts ? (
+        <small className="process-checklist-attempt">Attempt {attempt} of {maxAttempts}</small>
+      ) : null}
     </div>
   );
 }
@@ -180,19 +192,23 @@ export const FRIENDLY_HEALTH_LABELS: Record<string, string> = {
   fastapi: "Document processing",
   ollama: "Educational explanations",
   text_model: "Educational explanations",
-  vision_model: "Document preview",
+  // Not "Document preview" — that's PyMuPDF-rendered and has nothing to do
+  // with Ollama; this is what actually powers vision-based extraction.
+  vision_model: "AI-assisted extraction",
   embedding_model: "Educational explanations",
   vector_store: "Educational explanations",
-  database: "Document processing",
+  database: "Document storage",
   whisper: "Voice transcription",
   piper: "Voice playback",
   translation_model: "Translation",
   n8n: "Document processing",
-  document_processing: "Document processing",
+  document_processing: "Document preview",
   document_preview: "Document preview",
   processing_jobs: "Processing jobs",
   imaging_documents: "Imaging documents",
   imaging_viewer: "Imaging viewer",
+  imaging_reports: "Imaging reports",
+  medication_labels: "Medication labels",
   timeline: "Health Timeline",
 };
 

@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 import pymupdf
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -24,7 +25,7 @@ from src.config import (
     OLLAMA_HOST,
     OLLAMA_TIMEOUT_SECONDS,
     PROCESSING_RETRY_ATTEMPTS,
-    PROCESSING_RETRY_BACKOFF_SECONDS,
+    PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
     RAG_MAX_PASSAGE_WORDS,
     VISION_MODEL_NAME,
 )
@@ -103,6 +104,16 @@ class DocumentState(BaseModel):
     confirmed: bool = False
     content_type: str = ""
     file_size: int = 0
+    # Granular processing stage (validating/reading/extracting/saving/
+    # waiting_for_service) — distinct from `status` above, which stays the
+    # coarse value the existing UI already keys off of. Mirrored here from
+    # ProcessingJob (see src/shared/job_runner.py's on_stage hook) purely so
+    # the polling /status route — which reads this JSON state, not the DB —
+    # can show live retry progress.
+    stage: str = ""
+    retry_attempt: int = 0
+    retry_max: int = 0
+    safe_error_message: str = ""
 
 
 class UploadResponse(BaseModel):
@@ -119,6 +130,10 @@ class DocumentStatusResponse(BaseModel):
     status: str
     page_count: int = 0
     field_count: int = 0
+    stage: str = ""
+    retry_attempt: int = 0
+    retry_max: int = 0
+    safe_error_message: str = ""
 
 
 class ConfirmRequest(BaseModel):
@@ -325,6 +340,7 @@ def _extract_page_fields(
     image_path: Path,
     page_number: int,
     native_text: str,
+    set_stage: Callable[[str], None] = lambda stage: None,
 ) -> list[ExtractedField]:
     try:
         from ollama import Client
@@ -347,11 +363,15 @@ def _extract_page_fields(
             options={"temperature": 0.0},
         )
 
+    def _on_retry(attempt: int, attempts: int, delay: float) -> None:
+        set_stage("waiting_for_service", retry_attempt=attempt, retry_max=attempts)
+
     try:
         response = call_with_retry(
             _call,
             attempts=PROCESSING_RETRY_ATTEMPTS,
-            backoff_base=PROCESSING_RETRY_BACKOFF_SECONDS,
+            backoff_schedule=PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
+            on_retry=_on_retry,
         )
     except TransientProcessingError:
         raise
@@ -641,7 +661,7 @@ def _process_saved_pdf(
                 # the existing "could_not_read" degrade-gracefully design.
                 set_stage("extracting")
                 try:
-                    page_fields = _extract_page_fields(preview, n, text)
+                    page_fields = _extract_page_fields(preview, n, text, set_stage)
                 except PermanentProcessingError:
                     page_fields = []
 
@@ -678,7 +698,7 @@ def _process_saved_image(
 
     raw_path.unlink(missing_ok=True)
     set_stage("extracting")
-    page_fields = _extract_page_fields(preview, 1, "")
+    page_fields = _extract_page_fields(preview, 1, "", set_stage)
 
     pages = [
         PageInfo(
@@ -879,6 +899,10 @@ async def document_status(document_id: str) -> DocumentStatusResponse:
         status=state.status,
         page_count=state.page_count,
         field_count=len(state.fields),
+        stage=state.stage,
+        retry_attempt=state.retry_attempt,
+        retry_max=state.retry_max,
+        safe_error_message=state.safe_error_message,
     )
 
 
@@ -911,11 +935,21 @@ async def process_document(document_id: str) -> DocumentState:
         suffix = raw_path.suffix.lower()
         return _process_saved_image(raw_path, suffix, pages_dir, document_id, set_stage)
 
+    def _on_stage(stage: str, retry_attempt: int, retry_max: int) -> None:
+        # Mutates the same `state` this closure captured, not a copy — the
+        # success/failure paths below persist whatever this last recorded.
+        state.stage = stage
+        state.retry_attempt = retry_attempt
+        state.retry_max = retry_max
+        _save_state(state)
+
     try:
-        pages, fields = run_extraction_job(
+        pages, fields = await run_in_threadpool(
+            run_extraction_job,
             document_id=document_id,
             job_type="document_extraction",
             work=_run,
+            on_stage=_on_stage,
         )
 
         state = DocumentState(
@@ -932,6 +966,18 @@ async def process_document(document_id: str) -> DocumentState:
         _save_state(state)
         return state
 
+    except MediGuideError as error:
+        failed = state.model_copy(
+            update={
+                "status": "failed",
+                "stage": error.stage,
+                "safe_error_message": error.message,
+                "retry_attempt": 0,
+                "retry_max": 0,
+            }
+        )
+        _save_state(failed)
+        raise
     except Exception:
         failed = state.model_copy(update={"status": "failed"})
         _save_state(failed)

@@ -145,8 +145,12 @@ OLLAMA_TIMEOUT_SECONDS = float(
     )
 )
 
-# Bounded retry for transient (connection/timeout) Ollama failures during
-# document/medication extraction. Permanent failures are never retried.
+# Bounded retry for transient (connection/timeout/5xx) Ollama failures during
+# document/imaging/medication extraction. Permanent failures are never
+# retried. The schedule is the wait *between* attempts — 3 attempts only
+# need the first two entries ("2,5"); the trailing "10" is unused today and
+# exists only so raising PROCESSING_RETRY_ATTEMPTS doesn't also require a
+# code change.
 PROCESSING_RETRY_ATTEMPTS = int(
     os.getenv(
         "PROCESSING_RETRY_ATTEMPTS",
@@ -154,11 +158,12 @@ PROCESSING_RETRY_ATTEMPTS = int(
     )
 )
 
-PROCESSING_RETRY_BACKOFF_SECONDS = float(
-    os.getenv(
-        "PROCESSING_RETRY_BACKOFF_SECONDS",
-        "1.0",
-    )
+PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS = tuple(
+    float(part)
+    for part in os.getenv(
+        "PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS",
+        "2,5,10",
+    ).split(",")
 )
 
 DELETE_SPEECH_AFTER_MINUTES = int(

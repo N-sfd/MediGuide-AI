@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 import pymupdf
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -21,6 +22,8 @@ from src.config import (
     MODEL_NAME,
     OLLAMA_HOST,
     OLLAMA_TIMEOUT_SECONDS,
+    PROCESSING_RETRY_ATTEMPTS,
+    PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
     VISION_MODEL_NAME,
 )
 from src.database.medication_repository import (
@@ -33,6 +36,12 @@ from src.document_intelligence import EvidenceSource, retrieve_approved_evidence
 from src.image_validator import validate_image_file
 from src.observability.logging import get_logger
 from src.safety import check_for_emergency
+from src.shared.errors import MediGuideError
+from src.shared.resilience import (
+    PermanentProcessingError,
+    TransientProcessingError,
+    call_with_retry,
+)
 
 logger = get_logger(__name__)
 
@@ -220,30 +229,70 @@ def _build_fields(data: dict[str, Any]) -> tuple[list[MedicationField], str]:
     return fields, other_text
 
 
+def _call_with_classification(fn, *, stage: str):
+    """Runs an Ollama call with the same bounded retry/backoff and
+    transient-vs-permanent classification document/imaging extraction use
+    (see src/shared/resilience.py), raising a MediGuideError with a
+    standardized code instead of leaking a raw exception type name to the
+    client. No ProcessingJob row is created here — medication labels have
+    no Document-backed job to attach one to (see MedicationRecord's
+    docstring) — so retry state lives only within this one request."""
+    try:
+        return call_with_retry(
+            fn,
+            attempts=PROCESSING_RETRY_ATTEMPTS,
+            backoff_schedule=PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
+        )
+    except TransientProcessingError as error:
+        raise MediGuideError(
+            "AI_SERVICE_TEMPORARILY_UNAVAILABLE",
+            "We couldn't finish reading this label. Please try again in a moment.",
+            status_code=503,
+            retryable=True,
+            technical_detail=error.technical_detail,
+            stage=stage,
+        ) from error
+    except Exception as error:
+        raise MediGuideError(
+            "MEDICATION_LABEL_EXTRACTION_FAILED",
+            "MediGuide could not read this label.",
+            status_code=422,
+            retryable=False,
+            technical_detail=f"{type(error).__name__}: {error}",
+            stage=stage,
+        ) from error
+
+
 def _extract_from_image(image_path: Path) -> tuple[list[MedicationField], str]:
-    client = _ollama_client()
-    response = client.chat(
-        model=VISION_MODEL,
-        messages=[{
-            "role": "user",
-            "content": MED_EXTRACTION_PROMPT,
-            "images": [str(image_path)],
-        }],
-        options={"temperature": 0.0},
-    )
+    def _call() -> Any:
+        client = _ollama_client()
+        return client.chat(
+            model=VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": MED_EXTRACTION_PROMPT,
+                "images": [str(image_path)],
+            }],
+            options={"temperature": 0.0},
+        )
+
+    response = _call_with_classification(_call, stage="extracting")
     return _build_fields(_parse_json(response.message.content))
 
 
 def _extract_from_text(label_text: str) -> tuple[list[MedicationField], str]:
-    client = _ollama_client()
-    response = client.chat(
-        model=TEXT_MODEL,
-        messages=[{
-            "role": "user",
-            "content": MED_EXTRACTION_PROMPT + "\n\n<label_text>\n" + label_text[:4000] + "\n</label_text>",
-        }],
-        options={"temperature": 0.0},
-    )
+    def _call() -> Any:
+        client = _ollama_client()
+        return client.chat(
+            model=TEXT_MODEL,
+            messages=[{
+                "role": "user",
+                "content": MED_EXTRACTION_PROMPT + "\n\n<label_text>\n" + label_text[:4000] + "\n</label_text>",
+            }],
+            options={"temperature": 0.0},
+        )
+
+    response = _call_with_classification(_call, stage="extracting")
     return _build_fields(_parse_json(response.message.content))
 
 
@@ -322,7 +371,7 @@ async def upload(file: UploadFile = File(...)) -> MedicationState:
 
     try:
         preview = await (_ingest_pdf(file, folder) if suffix == ".pdf" else _ingest_image(file, folder))
-        fields, other_text = _extract_from_image(preview)
+        fields, other_text = await run_in_threadpool(_extract_from_image, preview)
 
         state = MedicationState(
             medication_id=medication_id,
@@ -337,14 +386,17 @@ async def upload(file: UploadFile = File(...)) -> MedicationState:
         _save_state(state)
         return state
 
-    except HTTPException:
+    except (HTTPException, MediGuideError):
         shutil.rmtree(folder, ignore_errors=True)
         raise
     except Exception as e:
         shutil.rmtree(folder, ignore_errors=True)
-        raise HTTPException(
+        raise MediGuideError(
+            "MEDICATION_LABEL_UPLOAD_FAILED",
+            "MediGuide could not store this upload.",
             status_code=500,
-            detail=f"MediGuide could not read this label: {type(e).__name__}",
+            retryable=False,
+            technical_detail=f"{type(e).__name__}: {e}",
         ) from e
 
 
@@ -357,7 +409,7 @@ async def upload_typed(request: TypedLabelRequest) -> MedicationState:
     folder.mkdir(parents=True, exist_ok=True)
 
     try:
-        fields, other_text = _extract_from_text(request.text)
+        fields, other_text = await run_in_threadpool(_extract_from_text, request.text)
         state = MedicationState(
             medication_id=medication_id,
             source="typed",
@@ -368,11 +420,17 @@ async def upload_typed(request: TypedLabelRequest) -> MedicationState:
         )
         _save_state(state)
         return state
+    except (HTTPException, MediGuideError):
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
     except Exception as e:
         shutil.rmtree(folder, ignore_errors=True)
-        raise HTTPException(
+        raise MediGuideError(
+            "MEDICATION_LABEL_UPLOAD_FAILED",
+            "MediGuide could not process that label text.",
             status_code=500,
-            detail=f"MediGuide could not process that label text: {type(e).__name__}",
+            retryable=False,
+            technical_detail=f"{type(e).__name__}: {e}",
         ) from e
 
 

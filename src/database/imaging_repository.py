@@ -118,6 +118,16 @@ def set_study_report_document(session: Session, study_id: str, document_id: str)
     study = session.get(ImagingStudy, study_id)
     if study is not None:
         study.report_document_id = document_id
+        study.pending_report_document_id = None
+        session.flush()
+
+
+def set_pending_report_document(session: Session, study_id: str, document_id: str | None) -> None:
+    """Marks (or clears) the in-flight report-upload attempt for a study —
+    see ImagingStudy.pending_report_document_id's docstring."""
+    study = session.get(ImagingStudy, study_id)
+    if study is not None:
+        study.pending_report_document_id = document_id
         session.flush()
 
 

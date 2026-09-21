@@ -150,6 +150,12 @@ class ProcessingJob(Base):
     status: Mapped[str] = mapped_column(String(32), default="queued")
     stage: Mapped[str] = mapped_column(String(32), default="validating")
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    # In-request automatic retry progress (see src/shared/resilience.py) for
+    # the current attempt only — reset at the start of each attempt_count
+    # increment, unlike attempt_count itself which accumulates across manual
+    # retries. Lets a polling client show "Attempt 2 of 3" live.
+    retry_attempt: Mapped[int] = mapped_column(Integer, default=0)
+    retry_max: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str] = mapped_column(String(64), default="")
@@ -219,6 +225,17 @@ class ImagingStudy(Base):
     # Never rendered in normal UI — kept for institutional traceability only.
     accession_identifier: Mapped[str] = mapped_column(String(128), default="")
     report_document_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    # Points at the document_id of the current/most-recent report upload
+    # attempt for this study — set before extraction begins, so a status
+    # poll keyed only by study_id (the frontend doesn't have document_id
+    # until the single upload+extract call finishes) can find the in-flight
+    # or just-failed ProcessingJob row. Cleared once that attempt succeeds;
+    # left in place on failure so "Retry processing" can still show what
+    # went wrong. Distinct from report_document_id, which only ever points
+    # at a successfully confirmed report.
+    pending_report_document_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
     verification_status: Mapped[str] = mapped_column(

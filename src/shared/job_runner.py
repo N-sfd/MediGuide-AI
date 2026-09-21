@@ -18,6 +18,7 @@ from src.database.repository import (
     complete_job,
     fail_job,
     get_or_create_job,
+    record_retry_progress,
     set_document_status,
     start_job_attempt,
     update_job_stage,
@@ -48,18 +49,31 @@ def run_extraction_job(
     *,
     document_id: str,
     job_type: str,
-    work: Callable[[Callable[[str], None]], T],
+    work: Callable[[Callable[..., None]], T],
+    on_stage: Callable[[str, int, int], None] | None = None,
 ) -> T:
     """Runs ``work(set_stage)`` while recording a ProcessingJob row.
 
-    ``work`` receives a ``set_stage(stage)`` callback to report progress and
-    should raise ``TransientProcessingError`` / ``PermanentProcessingError``
-    (see src/shared/resilience.py) so the job row records an accurate
-    error_code/retryable flag; any other exception is recorded as a generic
-    permanent failure.
+    ``work`` receives a ``set_stage(stage, *, retry_attempt=0, retry_max=0)``
+    callback to report progress and should raise ``TransientProcessingError``
+    / ``PermanentProcessingError`` (see src/shared/resilience.py) so the job
+    row records an accurate error_code/retryable flag; any other exception is
+    recorded as a generic permanent failure. Passing ``retry_attempt``/
+    ``retry_max`` alongside ``stage="waiting_for_service"`` (typically from a
+    ``call_with_retry`` ``on_retry`` callback) records live in-flight
+    automatic-retry progress separately from the job's own attempt_count.
+
+    ``on_stage`` — if given — is called with ``(stage, retry_attempt,
+    retry_max)`` alongside every DB update, best-effort, so a caller with its
+    own status surface (e.g. document_intelligence.py's JSON session state,
+    which the polling ``/status`` route actually reads from) can mirror the
+    same live progress without job_runner needing to know that surface
+    exists — it stays generic/provider-agnostic per this module's own
+    reason for existing.
     """
     job_id: str | None = None
     attempt = 0
+    current_stage = "validating"
 
     def _start() -> None:
         nonlocal job_id, attempt
@@ -76,18 +90,42 @@ def run_extraction_job(
         extra={"job_id": job_id, "document_id": document_id, "job_type": job_type, "attempt": attempt},
     )
 
-    def set_stage(stage: str) -> None:
+    def set_stage(stage: str, *, retry_attempt: int = 0, retry_max: int = 0) -> None:
+        nonlocal current_stage
+        current_stage = stage
+
         def _update() -> None:
             with session_scope() as session:
                 job = session.get(ProcessingJob, job_id) if job_id else None
-                if job is not None:
+                if job is None:
+                    return
+                if stage == "waiting_for_service" and retry_max:
+                    record_retry_progress(
+                        session, job, attempt=retry_attempt, max_attempts=retry_max
+                    )
+                else:
                     update_job_stage(session, job, stage)
 
         _safe("update_stage", _update)
         logger.info(
             "job_stage",
-            extra={"job_id": job_id, "document_id": document_id, "stage": stage, "attempt": attempt},
+            extra={
+                "job_id": job_id,
+                "document_id": document_id,
+                "stage": stage,
+                "attempt": attempt,
+                "retry_attempt": retry_attempt,
+                "retry_max": retry_max,
+            },
         )
+        if on_stage is not None:
+            try:
+                on_stage(stage, retry_attempt, retry_max)
+            except Exception as error:  # noqa: BLE001 — mirroring must never break extraction
+                logger.warning(
+                    "job_tracking_unavailable",
+                    extra={"action": "on_stage", "error_type": type(error).__name__},
+                )
 
     started = time.monotonic()
 
@@ -98,9 +136,10 @@ def run_extraction_job(
         # `except ... as error` deletes `error` once this block exits, so a
         # nested function must not close over it directly.
         retryable = isinstance(error, TransientProcessingError)
-        code = "DOCUMENT_EXTRACTION_TIMEOUT" if retryable else "DOCUMENT_EXTRACTION_FAILED"
+        code = "AI_SERVICE_TEMPORARILY_UNAVAILABLE" if retryable else "DOCUMENT_EXTRACTION_FAILED"
         safe_message = error.message
         technical_detail = error.technical_detail
+        failure_stage = current_stage
 
         def _fail() -> None:
             with session_scope() as session:
@@ -133,6 +172,7 @@ def run_extraction_job(
             status_code=503 if retryable else 422,
             retryable=retryable,
             technical_detail=technical_detail,
+            stage=failure_stage,
         ) from error
     except Exception as error:
         # Same reasoning as above: capture before defining the closure.
@@ -169,6 +209,7 @@ def run_extraction_job(
             status_code=422,
             retryable=False,
             technical_detail=technical_detail,
+            stage=current_stage,
         ) from error
     else:
         def _complete() -> None:

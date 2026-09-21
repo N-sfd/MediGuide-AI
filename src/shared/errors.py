@@ -32,6 +32,7 @@ class MediGuideError(Exception):
         status_code: int = 500,
         retryable: bool = False,
         technical_detail: str = "",
+        stage: str = "",
     ):
         super().__init__(message)
         self.code = code
@@ -39,6 +40,11 @@ class MediGuideError(Exception):
         self.status_code = status_code
         self.retryable = retryable
         self.technical_detail = technical_detail or message
+        # Which processing stage failed (e.g. "extracting") — set only by
+        # the document/imaging/medication extraction failure paths; empty
+        # for every other error in the app, so it's omitted from the
+        # envelope rather than serialized as "".
+        self.stage = stage
 
 
 # Fallback codes for plain HTTPException(detail=...) call sites that predate
@@ -61,15 +67,18 @@ _STATUS_CODE_FALLBACK = {
 _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
-def _envelope(*, code: str, message: str, retryable: bool) -> dict[str, object]:
-    return {
-        "error": {
-            "code": code,
-            "message": message,
-            "retryable": retryable,
-            "request_id": get_request_id(),
-        }
+def _envelope(
+    *, code: str, message: str, retryable: bool, stage: str = ""
+) -> dict[str, object]:
+    envelope: dict[str, object] = {
+        "code": code,
+        "message": message,
+        "retryable": retryable,
+        "request_id": get_request_id(),
     }
+    if stage:
+        envelope["stage"] = stage
+    return {"error": envelope}
 
 
 def install_error_handlers(app) -> None:
@@ -89,7 +98,9 @@ def install_error_handlers(app) -> None:
         )
         return JSONResponse(
             status_code=exc.status_code,
-            content=_envelope(code=exc.code, message=exc.message, retryable=exc.retryable),
+            content=_envelope(
+                code=exc.code, message=exc.message, retryable=exc.retryable, stage=exc.stage
+            ),
         )
 
     @app.exception_handler(HTTPException)

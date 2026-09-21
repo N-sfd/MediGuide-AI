@@ -13,15 +13,18 @@ import json
 import os
 import shutil
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import pymupdf
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from src.config import (
     BASE_DIR,
@@ -29,7 +32,7 @@ from src.config import (
     OLLAMA_HOST,
     OLLAMA_TIMEOUT_SECONDS,
     PROCESSING_RETRY_ATTEMPTS,
-    PROCESSING_RETRY_BACKOFF_SECONDS,
+    PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
     VISION_MODEL_NAME,
 )
 from src.database.imaging_repository import (
@@ -43,10 +46,12 @@ from src.database.imaging_repository import (
     modality_summary,
     serialize_section,
     serialize_study,
+    set_pending_report_document,
     set_study_report_document,
     set_study_verification_status,
     upsert_report_sections,
 )
+from src.database.models import ProcessingJob
 from src.database.repository import (
     add_document_page,
     create_uploaded_document,
@@ -164,7 +169,10 @@ Rules:
 """
 
 
-def _extract_sections_via_vision(image_path: Path) -> dict[str, str]:
+def _extract_sections_via_vision(
+    image_path: Path,
+    set_stage: Callable[[str], None] = lambda stage: None,
+) -> dict[str, str]:
     try:
         from ollama import Client
     except ImportError as error:
@@ -185,11 +193,15 @@ def _extract_sections_via_vision(image_path: Path) -> dict[str, str]:
             options={"temperature": 0.0},
         )
 
+    def _on_retry(attempt: int, attempts: int, delay: float) -> None:
+        set_stage("waiting_for_service", retry_attempt=attempt, retry_max=attempts)
+
     try:
         response = call_with_retry(
             _call,
             attempts=PROCESSING_RETRY_ATTEMPTS,
-            backoff_base=PROCESSING_RETRY_BACKOFF_SECONDS,
+            backoff_schedule=PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
+            on_retry=_on_retry,
         )
     except TransientProcessingError:
         raise
@@ -390,6 +402,10 @@ async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str
             content_type=file.content_type or "",
             storage_path=str(folder),
         )
+        # Set before extraction begins (not after it fails) so a status
+        # poll started the moment this request was fired — before the
+        # frontend has even seen this response — can already find it.
+        set_pending_report_document(session, study_id, document_id)
 
     def work(set_stage) -> dict[str, str]:
         set_stage("reading")
@@ -420,7 +436,7 @@ async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str
 
             preview_path = pages_dir / f"page-{page_number}.png"
             try:
-                vision_sections = _extract_sections_via_vision(preview_path)
+                vision_sections = _extract_sections_via_vision(preview_path, set_stage)
             except PermanentProcessingError:
                 vision_sections = {}
             if vision_sections:
@@ -451,10 +467,46 @@ async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str
 
         return collected
 
-    sections = run_extraction_job(
-        document_id=document_id, job_type="imaging_report_extraction", work=work
+    sections = await run_in_threadpool(
+        run_extraction_job,
+        document_id=document_id,
+        job_type="imaging_report_extraction",
+        work=work,
     )
     return {"document_id": document_id, "sections": sections}
+
+
+@router.get("/studies/{study_id}/report/status")
+async def report_status(study_id: str) -> dict[str, Any]:
+    """Polling target for a report upload in flight — see
+    ImagingStudy.pending_report_document_id's docstring for why this is
+    keyed by study_id rather than document_id."""
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+
+        document_id = study.pending_report_document_id
+        if not document_id:
+            return {"status": "idle", "stage": "", "retry_attempt": 0, "retry_max": 0, "safe_error_message": ""}
+
+        job = session.execute(
+            select(ProcessingJob).where(
+                ProcessingJob.document_id == document_id,
+                ProcessingJob.job_type == "imaging_report_extraction",
+            )
+        ).scalar_one_or_none()
+        if job is None:
+            return {"status": "idle", "stage": "", "retry_attempt": 0, "retry_max": 0, "safe_error_message": ""}
+
+        return {
+            "document_id": document_id,
+            "status": job.status,
+            "stage": job.stage,
+            "retry_attempt": job.retry_attempt,
+            "retry_max": job.retry_max,
+            "safe_error_message": job.safe_error_message,
+        }
 
 
 @router.get("/studies/{study_id}/report/sections")

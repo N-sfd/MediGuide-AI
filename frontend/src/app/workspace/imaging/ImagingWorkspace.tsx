@@ -44,6 +44,11 @@ export function ImagingWorkspace({
   const [viewerExpanded, setViewerExpanded] = useState(false);
   const [transientStatus, setTransientStatus] = useState<"processing" | "failed" | null>(null);
   const [processingError, setProcessingError] = useState("");
+  const [processingProgress, setProcessingProgress] = useState<{
+    stage: string;
+    retryAttempt: number;
+    retryMax: number;
+  } | null>(null);
   const [lastUploadFile, setLastUploadFile] = useState<File | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState("");
@@ -173,20 +178,41 @@ export function ImagingWorkspace({
 
   async function uploadReport(file: File) {
     if (!selectedStudy) return;
+    const studyId = selectedStudy.study_id;
     setLastUploadFile(file);
     setTransientStatus("processing");
     setProcessingError("");
+    setProcessingProgress(null);
+
+    // Polls a study_id-keyed status route rather than waiting on the
+    // upload response itself — that single request only returns once
+    // extraction finishes (success or failure), so this is the only way to
+    // show live stage/retry progress while it's still in flight.
+    const pollTimer = window.setInterval(async () => {
+      const status = await imagingApi.fetchReportStatus(apiUrl, studyId);
+      if (status && status.stage) {
+        setProcessingProgress({
+          stage: status.stage,
+          retryAttempt: status.retry_attempt,
+          retryMax: status.retry_max,
+        });
+      }
+    }, 1200);
+
     try {
-      await imagingApi.uploadReport(apiUrl, selectedStudy.study_id, file);
+      await imagingApi.uploadReport(apiUrl, studyId, file);
       pushToast("Report extracted — review required", "success");
       setTransientStatus(null);
-      await loadSections(selectedStudy.study_id);
+      await loadSections(studyId);
       await loadModalities();
-      const refreshed = await imagingApi.fetchStudy(apiUrl, selectedStudy.study_id);
+      const refreshed = await imagingApi.fetchStudy(apiUrl, studyId);
       setSelectedStudy(refreshed);
     } catch (err) {
       setTransientStatus("failed");
       setProcessingError(err instanceof Error ? err.message : "MediGuide could not read this imaging report.");
+    } finally {
+      window.clearInterval(pollTimer);
+      setProcessingProgress(null);
     }
   }
 
@@ -387,6 +413,7 @@ export function ImagingWorkspace({
           setViewerExpanded={setViewerExpanded}
           transientStatus={transientStatus}
           processingError={processingError}
+          processingProgress={processingProgress}
           confirming={confirming}
           onBack={() => setView(selectedModality ? "list" : "landing")}
           onOpenHistory={() => void openHistory()}
