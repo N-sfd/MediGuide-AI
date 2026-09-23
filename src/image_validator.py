@@ -7,6 +7,7 @@ from src.config import (
     MAX_IMAGE_HEIGHT,
     MAX_IMAGE_MB,
     MAX_IMAGE_WIDTH,
+    VISION_OCR_MAX_EDGE,
 )
 
 
@@ -114,3 +115,29 @@ def validate_image_file(
         height=height,
         format=image_format,
     )
+
+
+def prepare_vision_image(
+    source: Path,
+    dest: Path | None = None,
+    *,
+    max_edge: int = VISION_OCR_MAX_EDGE,
+) -> Path:
+    """Writes a RGB PNG sized for vision OCR (longest edge capped).
+
+    Callers should send the returned path to Ollama — not the full-resolution
+    preview — so dense phone photos finish within the vision timeout.
+    """
+    target = dest or source.with_name(f"{source.stem}-vision.png")
+    with Image.open(source) as image:
+        rgb = image.convert("RGB")
+        width, height = rgb.size
+        longest = max(width, height)
+        if longest > max_edge > 0:
+            scale = max_edge / longest
+            rgb = rgb.resize(
+                (max(1, int(width * scale)), max(1, int(height * scale))),
+                Image.Resampling.LANCZOS,
+            )
+        rgb.save(target, format="PNG", optimize=True)
+    return target

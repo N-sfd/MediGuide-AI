@@ -1,8 +1,9 @@
-import { fetchWithTimeout, parseApiError } from "../../../lib/api-error";
+import { fetchWithTimeout, parseApiError, VISION_PROCESS_TIMEOUT_MS } from "../../../lib/api-error";
 import type {
   CompareBucket,
   FindingExplanation,
   ImagingFinding,
+  ImagingSample,
   ImagingStudy,
   Modality,
   ModalitySummary,
@@ -55,7 +56,13 @@ export function fetchStudy(apiUrl: string, studyId: string): Promise<ImagingStud
 
 export function createStudy(
   apiUrl: string,
-  input: { modality: Modality; body_region: string; study_date: string | null; institution: string },
+  input: {
+    modality: Modality;
+    body_region: string;
+    study_date: string | null;
+    institution: string;
+    study_description?: string;
+  },
 ): Promise<ImagingStudy> {
   return fetchWithTimeout(`${apiUrl}/api/imaging/studies`, {
     method: "POST",
@@ -80,7 +87,7 @@ export function uploadReport(
   return fetchWithTimeout(
     `${apiUrl}/api/imaging/studies/${studyId}/report`,
     { method: "POST", body: form },
-    90_000,
+    VISION_PROCESS_TIMEOUT_MS,
   ).then((r) => asJson(r, "MediGuide could not read this imaging report."));
 }
 
@@ -150,6 +157,22 @@ export function explainTerm(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ term, modality }),
   }).then((r) => asJson(r, "Could not explain this term right now."));
+}
+
+export function fetchImagingSamples(apiUrl: string): Promise<{ samples: ImagingSample[] }> {
+  return fetchWithTimeout(`${apiUrl}/api/imaging/samples`).then((r) =>
+    asJson(r, "Could not load sample imaging reports."),
+  );
+}
+
+export async function downloadImagingSample(apiUrl: string, slug: string, filename: string): Promise<File> {
+  const response = await fetchWithTimeout(`${apiUrl}/api/imaging/samples/${encodeURIComponent(slug)}`);
+  if (!response.ok) {
+    const apiError = await parseApiError(response, "Could not download this sample report.");
+    throw new Error(apiError.message);
+  }
+  const blob = await response.blob();
+  return new File([blob], filename || `${slug}.pdf`, { type: "application/pdf" });
 }
 
 export function reportPagePreviewUrl(apiUrl: string, studyId: string, page: number): string {

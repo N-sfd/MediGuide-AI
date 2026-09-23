@@ -140,9 +140,28 @@ def call_with_retry(
                     on_retry(attempt, attempts, delay)
                 time.sleep(delay)
                 continue
+            # Connection refused / unreachable hosts are not "slow" — they
+            # mean the provider is absent. Read timeouts keep the historical copy.
+            unreachable = isinstance(
+                error,
+                (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout),
+            ) or (
+                isinstance(error, OSError)
+                and "refused" in str(error).lower()
+            )
+            if unreachable:
+                message = (
+                    "The AI service is unreachable after "
+                    f"{attempts} attempts. Check System Status — vision "
+                    "reading needs Ollama running locally."
+                )
+            else:
+                message = (
+                    "The AI service did not respond in time after "
+                    f"{attempts} attempts."
+                )
             raise TransientProcessingError(
-                "The AI service did not respond in time after "
-                f"{attempts} attempts.",
+                message,
                 technical_detail=f"{type(error).__name__}: {error}",
             ) from error
         else:

@@ -130,6 +130,12 @@ export function ImagingReportPanel({
           <Check size={14} /> Confirm reviewed sections
         </button>
       )}
+
+      {allConfirmed ? (
+        <p className="imaging-next-step" role="status">
+          Sections confirmed. Next: verify structured findings below so Overview can summarize what you accepted.
+        </p>
+      ) : null}
     </div>
   );
 }

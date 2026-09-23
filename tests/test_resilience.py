@@ -43,8 +43,19 @@ def test_gives_up_after_exhausting_attempts_raises_transient_error():
     def fn():
         raise TimeoutError("still down")
 
-    with pytest.raises(TransientProcessingError):
+    with pytest.raises(TransientProcessingError) as exc:
         call_with_retry(fn, attempts=2, backoff_schedule=(0,))
+    assert "did not respond in time" in exc.value.message
+
+
+def test_exhausted_connection_errors_say_unreachable_not_timeout():
+    def fn():
+        raise ConnectionError("refused")
+
+    with pytest.raises(TransientProcessingError) as exc:
+        call_with_retry(fn, attempts=2, backoff_schedule=(0,))
+    assert "unreachable" in exc.value.message
+    assert "did not respond in time" not in exc.value.message
 
 
 def test_retries_httpx_timeout_exceptions():

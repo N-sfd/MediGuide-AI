@@ -66,6 +66,13 @@ def _ensure_sqlite_columns(engine: Engine) -> None:
             ("extraction_method", "VARCHAR(32) DEFAULT ''"),
             ("range_status", "VARCHAR(64) DEFAULT 'unknown'"),
         ],
+        "processing_jobs": [
+            ("retry_attempt", "INTEGER DEFAULT 0"),
+            ("retry_max", "INTEGER DEFAULT 0"),
+        ],
+        "imaging_studies": [
+            ("pending_report_document_id", "VARCHAR(36)"),
+        ],
     }
     with engine.begin() as connection:
         for table, columns in alterations.items():

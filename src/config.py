@@ -151,20 +151,24 @@ OLLAMA_TIMEOUT_SECONDS = float(
 OLLAMA_VISION_TIMEOUT_SECONDS = float(
     os.getenv(
         "OLLAMA_VISION_TIMEOUT_SECONDS",
-        "90",
+        "120",
     )
 )
 
+# Longest edge (px) for images sent to the vision model. Full-resolution phone
+# photos routinely exceed the client timeout on local gemma3:4b; downscaling
+# before OCR keeps text readable while cutting inference time.
+VISION_OCR_MAX_EDGE = int(os.getenv("VISION_OCR_MAX_EDGE", "1024"))
+
 # Bounded retry for transient (connection/timeout/5xx) Ollama failures during
 # document/imaging/medication extraction. Permanent failures are never
-# retried. The schedule is the wait *between* attempts — 3 attempts only
-# need the first two entries ("2,5"); the trailing "10" is unused today and
-# exists only so raising PROCESSING_RETRY_ATTEMPTS doesn't also require a
-# code change.
+# retried. Default 2: a full vision ReadTimeout already costs
+# OLLAMA_VISION_TIMEOUT_SECONDS, and a third attempt rarely recovers for
+# oversized pages. The schedule is the wait *between* attempts.
 PROCESSING_RETRY_ATTEMPTS = int(
     os.getenv(
         "PROCESSING_RETRY_ATTEMPTS",
-        "3",
+        "2",
     )
 )
 

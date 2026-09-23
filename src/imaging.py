@@ -66,7 +66,7 @@ from src.database.repository import (
 )
 from src.database.session import probe_database, session_scope
 from src.document_intelligence import retrieve_approved_evidence
-from src.image_validator import validate_image_file
+from src.image_validator import prepare_vision_image, validate_image_file
 from src.imaging_compare import compare_section_text
 from src.imaging_dicom import is_dicom_file
 from src.imaging_sections import SECTION_TYPES, split_report_sections
@@ -196,13 +196,15 @@ def _extract_sections_via_vision(
     image_path: Path,
     set_stage: Callable[[str], None] = lambda stage: None,
 ) -> dict[str, str]:
-    try:
-        from ollama import Client
-    except ImportError as error:
-        raise PermanentProcessingError(
-            "Vision OCR is unavailable on this deployment. Upload a digital PDF with selectable text.",
-            technical_detail=f"{type(error).__name__}: {error}",
-        ) from error
+    from src.shared.ollama_health import require_vision_ready
+
+    require_vision_ready()
+    from ollama import Client
+
+    vision_path = prepare_vision_image(
+        image_path,
+        image_path.with_name(f"{image_path.stem}-vision.png"),
+    )
 
     def _call() -> Any:
         client = Client(host=OLLAMA_HOST, timeout=OLLAMA_VISION_TIMEOUT_SECONDS)
@@ -211,7 +213,7 @@ def _extract_sections_via_vision(
             messages=[{
                 "role": "user",
                 "content": IMAGING_SECTION_PROMPT,
-                "images": [str(image_path)],
+                "images": [str(vision_path)],
             }],
             options={"temperature": 0.0},
         )
@@ -298,6 +300,45 @@ async def _save_report_upload(file: UploadFile, document_id: str, suffix: str) -
         raise MediGuideError("INVALID_PDF", "File is not a valid PDF.", status_code=422)
 
     return target
+
+
+# --------------------------------------------------------------------------
+# Synthetic sample fixtures (educational demos — not real patient data)
+# --------------------------------------------------------------------------
+
+
+@router.get("/samples")
+async def list_imaging_samples() -> dict[str, Any]:
+    from src.sample_imaging_fixtures import generate_sample_imaging_reports, list_sample_metadata, sample_pdf_path
+
+    samples_dir = BASE_DIR / "data" / "samples" / "imaging"
+    # Self-heal missing fixtures the same way the lab sample endpoint does.
+    if not any(sample_pdf_path(item["slug"], samples_dir) for item in list_sample_metadata()):
+        generate_sample_imaging_reports(samples_dir)
+    return {"samples": list_sample_metadata()}
+
+
+@router.get("/samples/{slug}")
+async def download_imaging_sample(slug: str) -> FileResponse:
+    from src.sample_imaging_fixtures import generate_sample_imaging_reports, list_sample_metadata, sample_pdf_path
+
+    allowed = {item["slug"] for item in list_sample_metadata()}
+    if slug not in allowed:
+        raise HTTPException(status_code=404, detail="Sample report not found.")
+
+    samples_dir = BASE_DIR / "data" / "samples" / "imaging"
+    path = sample_pdf_path(slug, samples_dir)
+    if path is None:
+        generate_sample_imaging_reports(samples_dir)
+        path = sample_pdf_path(slug, samples_dir)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Sample report file is missing.")
+
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=f"{slug}.pdf",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -449,6 +490,7 @@ async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str
         set_stage("extracting")
         collected: dict[str, str] = {}
         source_page = 1
+        last_permanent: PermanentProcessingError | None = None
         for page_number, text in page_texts:
             native_sections = split_report_sections(text)
             if native_sections:
@@ -460,12 +502,23 @@ async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str
             preview_path = pages_dir / f"page-{page_number}.png"
             try:
                 vision_sections = _extract_sections_via_vision(preview_path, set_stage)
-            except PermanentProcessingError:
+            except PermanentProcessingError as error:
+                # Keep going for multi-page PDFs that already have some text,
+                # but never silently save an empty report for photo uploads.
+                last_permanent = error
                 vision_sections = {}
             if vision_sections:
                 for key, value in vision_sections.items():
                     collected.setdefault(key, value)
                 source_page = page_number
+
+        if not collected:
+            if last_permanent is not None:
+                raise last_permanent
+            raise PermanentProcessingError(
+                "No report text could be read from this file. Upload a "
+                "text-based PDF, or a clear photo of the written radiology report.",
+            )
 
         set_stage("saving")
         with session_scope() as session:

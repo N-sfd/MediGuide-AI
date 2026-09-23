@@ -400,11 +400,12 @@ export function Documents({
           ) : null}
         </div>
       )}
-      {error && /AI service|did not respond|timeout/i.test(error) ? (
+      {error && /AI service|did not respond|timeout|vision service|not available|Imaging instead|lab document|radiology/i.test(error) ? (
         <p className="imaging-boundary" style={{ marginTop: 12 }}>
           Your original file is still available. Phone photos of radiology reports belong in{" "}
-          <strong>Imaging</strong> (MRI / X-ray / CT report text), not Documents lab extraction. If you retry here,
-          dense pages may take longer while the reading service is warming up.
+          <strong>Imaging</strong> (MRI / X-ray / CT report text), not Documents lab extraction.
+          If Imaging already extracted this report, continue verification there — retrying Documents
+          will not improve a radiology photo.
         </p>
       ) : null}
     </div>;

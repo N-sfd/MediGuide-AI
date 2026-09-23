@@ -1,11 +1,10 @@
+import { useEffect, useState, type ChangeEvent } from "react";
 import { Aperture, Check, Layers, Loader2, ScanLine, Sparkles, Upload, Waves } from "lucide-react";
-import type { ChangeEvent } from "react";
-import type { Modality, ModalitySummary } from "./imaging-types";
+import type { ImagingSample, Modality, ModalitySummary } from "./imaging-types";
 import { MODALITY_ORDER, MODALITY_LABELS, formatStudyDate } from "./imaging-types";
 import { ImagingLandingEmptyState } from "./ImagingEmptyState";
+import * as imagingApi from "./imaging-api";
 
-// One distinct lucide icon per modality — a licensed, already-vendored
-// dependency — rather than any external/scraped imagery.
 const MODALITY_ICONS: Record<Modality, typeof ScanLine> = {
   xray: ScanLine,
   ct: Layers,
@@ -15,6 +14,7 @@ const MODALITY_ICONS: Record<Modality, typeof ScanLine> = {
 };
 
 export function ImagingLanding({
+  apiUrl,
   modalities,
   loading,
   showAddForm,
@@ -31,7 +31,9 @@ export function ImagingLanding({
   onSelectModality,
   onOpenHistory,
   onOpenCompare,
+  onTrySample,
 }: {
+  apiUrl: string;
   modalities: ModalitySummary[];
   loading: string;
   showAddForm: boolean;
@@ -48,8 +50,18 @@ export function ImagingLanding({
   onSelectModality: (modality: Modality) => void;
   onOpenHistory: () => void;
   onOpenCompare: () => void;
+  onTrySample: (sample: ImagingSample) => void;
 }) {
   const noStudiesAtAll = modalities.length > 0 && modalities.every((row) => row.study_count === 0);
+  const [samples, setSamples] = useState<ImagingSample[]>([]);
+
+  useEffect(() => {
+    if (!apiUrl) return;
+    imagingApi
+      .fetchImagingSamples(apiUrl)
+      .then((data) => setSamples(data.samples || []))
+      .catch(() => setSamples([]));
+  }, [apiUrl]);
 
   function onModalityChange(event: ChangeEvent<HTMLSelectElement>) {
     setNewModality(event.target.value as Modality);
@@ -60,8 +72,8 @@ export function ImagingLanding({
       <p className="eyebrow">IMAGING</p>
       <h2>Imaging</h2>
       <p className="workflow-lead">
-        Organize imaging studies and understand the reports that accompany them. MediGuide
-        displays and explains report text — it does not read or diagnose the scan itself.
+        Organize imaging studies and understand the reports that accompany them. MediGuide displays and explains report
+        text — it does not read or diagnose the scan itself.
       </p>
 
       <div className="imaging-toolbar">
@@ -75,6 +87,29 @@ export function ImagingLanding({
           Compare reports
         </button>
       </div>
+
+      {samples.length > 0 ? (
+        <section className="imaging-samples" aria-label="Sample reports">
+          <h3 className="imaging-section-title">Try a sample report</h3>
+          <p className="imaging-samples-lead">
+            Synthetic educational PDFs with selectable text — fastest path to verify extraction and findings review.
+          </p>
+          <div className="imaging-sample-chips">
+            {samples.map((sample) => (
+              <button
+                key={sample.slug}
+                type="button"
+                className="quiet-button imaging-sample-chip"
+                disabled={Boolean(loading)}
+                onClick={() => onTrySample(sample)}
+              >
+                <span className="imaging-sample-modality">{sample.modality_label}</span>
+                {sample.body_region}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {showAddForm && (
         <div className="imaging-add-form">

@@ -28,7 +28,7 @@ export function ImagingLandingEmptyState() {
   return (
     <EmptyState
       title="No imaging studies yet"
-      body="Add an imaging study and its report to organize your imaging history."
+      body="Add a study and attach a radiology report PDF, or try one of the sample reports above to walk through extraction and verification."
     />
   );
 }
@@ -55,7 +55,7 @@ export function ImagingNoReportEmptyState({ onAttach }: { onAttach: (file: File)
   return (
     <EmptyState
       title="No report attached yet"
-      body="Attach the radiology report for this study to extract and review its sections."
+      body="Attach a text-based radiology PDF for the fastest read. Phone photos of reports also work, but vision reading can take longer."
     >
       <label className="forest-button imaging-upload-label">
         <Upload size={15} /> Attach report
@@ -66,6 +66,7 @@ export function ImagingNoReportEmptyState({ onAttach }: { onAttach: (file: File)
           onChange={(event) => handleReportFileSelect(event, onAttach, () => setDicomNotice(true))}
         />
       </label>
+      <p className="imaging-upload-tip">Accepted: PDF, PNG, JPG, WEBP · Prefer digital PDFs with selectable text</p>
     </EmptyState>
   );
 }

@@ -22,6 +22,15 @@ export const SECTION_LABELS: Record<string, string> = {
 
 export const SECTION_ORDER = Object.keys(SECTION_LABELS);
 
+export interface ImagingSample {
+  slug: string;
+  modality: Modality;
+  modality_label: string;
+  body_region: string;
+  title: string;
+  filename: string;
+}
+
 export interface ModalitySummary {
   modality: Modality;
   label: string;

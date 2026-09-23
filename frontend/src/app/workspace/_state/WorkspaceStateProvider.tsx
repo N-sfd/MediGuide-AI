@@ -21,7 +21,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { DEMO_CBC_FIELDS, DEMO_MEDICATION } from "../../../lib/demo-data";
-import { fetchWithTimeout, parseApiError } from "../../../lib/api-error";
+import { fetchWithTimeout, parseApiError, VISION_PROCESS_TIMEOUT_MS } from "../../../lib/api-error";
 import { mapStatusToProcessStage, type ProcessStageId, type ToastItem } from "../polish-ui";
 import {
   API_CONFIGURATION_MESSAGE,
@@ -319,7 +319,7 @@ function useWorkspaceState() {
       const response = await fetchWithTimeout(
         `${API_URL}/api/documents/v2/${documentId}/process`,
         { method: "POST" },
-        90_000,
+        VISION_PROCESS_TIMEOUT_MS,
       );
 
       if (!response.ok) {

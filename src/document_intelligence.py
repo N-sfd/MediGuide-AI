@@ -32,7 +32,7 @@ from src.config import (
 )
 from src.database.repository import create_uploaded_document
 from src.database.session import session_scope
-from src.image_validator import validate_image_file
+from src.image_validator import prepare_vision_image, validate_image_file
 from src.labs.service import create_observations_from_document
 from src.observability.logging import get_logger
 from src.safety import check_for_emergency
@@ -343,13 +343,15 @@ def _extract_page_fields(
     native_text: str,
     set_stage: Callable[[str], None] = lambda stage: None,
 ) -> list[ExtractedField]:
-    try:
-        from ollama import Client
-    except ImportError as error:
-        raise PermanentProcessingError(
-            "Vision OCR is unavailable on this deployment. Upload a digital PDF with selectable text.",
-            technical_detail=f"{type(error).__name__}: {error}",
-        ) from error
+    from src.shared.ollama_health import require_vision_ready
+
+    require_vision_ready()
+    from ollama import Client
+
+    vision_path = prepare_vision_image(
+        image_path,
+        image_path.with_name(f"{image_path.stem}-vision.png"),
+    )
 
     def _call() -> Any:
         client = Client(host=OLLAMA_HOST, timeout=OLLAMA_VISION_TIMEOUT_SECONDS)
@@ -359,7 +361,7 @@ def _extract_page_fields(
                 "role": "user",
                 "content": EXTRACTION_PROMPT + "\n\n<native_document_text>\n"
                            + native_text[:12000] + "\n</native_document_text>",
-                "images": [str(image_path)],
+                "images": [str(vision_path)],
             }],
             options={"temperature": 0.0},
         )
@@ -699,7 +701,18 @@ def _process_saved_image(
 
     raw_path.unlink(missing_ok=True)
     set_stage("extracting")
-    page_fields = _extract_page_fields(preview, 1, "", set_stage)
+    try:
+        page_fields = _extract_page_fields(preview, 1, "", set_stage)
+    except TransientProcessingError as error:
+        # Lab-field vision on dense radiology photos routinely exceeds the
+        # local vision budget. Imaging already reads this class of upload —
+        # fail permanently with a clear handoff instead of another retry loop.
+        raise PermanentProcessingError(
+            "This photo could not be read as a lab document. "
+            "Radiology report photos (MRI, X-ray, CT) belong in Imaging — "
+            "use Open Imaging instead.",
+            technical_detail=error.technical_detail,
+        ) from error
 
     pages = [
         PageInfo(

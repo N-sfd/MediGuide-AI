@@ -7,6 +7,7 @@ import type {
   CompareBucket,
   FindingExplanation,
   ImagingFinding,
+  ImagingSample,
   ImagingStudy,
   ImagingView,
   Modality,
@@ -206,6 +207,29 @@ export function ImagingWorkspace({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create this study.");
     } finally {
+      setLoading("");
+    }
+  }
+
+  async function trySampleReport(sample: ImagingSample) {
+    if (!apiUrl) return;
+    setError("");
+    setLoading(`Preparing ${sample.modality_label} sample…`);
+    try {
+      const study = await imagingApi.createStudy(apiUrl, {
+        modality: sample.modality,
+        body_region: sample.body_region,
+        study_date: new Date().toISOString().slice(0, 10),
+        institution: "MediGuide synthetic demo",
+        study_description: sample.title,
+      });
+      await loadModalities();
+      await openStudy(study);
+      setLoading("");
+      const file = await imagingApi.downloadImagingSample(apiUrl, sample.slug, sample.filename);
+      await uploadReport(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load this sample report.");
       setLoading("");
     }
   }
@@ -448,6 +472,7 @@ export function ImagingWorkspace({
 
       {view === "landing" && (
         <ImagingLanding
+          apiUrl={apiUrl}
           modalities={modalities}
           loading={loading}
           showAddForm={showAddForm}
@@ -464,6 +489,7 @@ export function ImagingWorkspace({
           onSelectModality={(modality) => void loadStudies(modality)}
           onOpenHistory={() => void openHistory()}
           onOpenCompare={() => void openCompare()}
+          onTrySample={(sample) => void trySampleReport(sample)}
         />
       )}
 

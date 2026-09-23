@@ -33,7 +33,7 @@ from src.database.medication_repository import (
 )
 from src.database.session import session_scope
 from src.document_intelligence import EvidenceSource, retrieve_approved_evidence
-from src.image_validator import validate_image_file
+from src.image_validator import prepare_vision_image, validate_image_file
 from src.observability.logging import get_logger
 from src.safety import check_for_emergency
 from src.shared.errors import MediGuideError
@@ -264,6 +264,25 @@ def _call_with_classification(fn, *, stage: str):
 
 
 def _extract_from_image(image_path: Path) -> tuple[list[MedicationField], str]:
+    from src.shared.ollama_health import require_vision_ready
+
+    try:
+        require_vision_ready()
+    except PermanentProcessingError as error:
+        raise MediGuideError(
+            "AI_SERVICE_UNAVAILABLE",
+            error.message,
+            status_code=503,
+            retryable=False,
+            technical_detail=error.technical_detail,
+            stage="extracting",
+        ) from error
+
+    vision_path = prepare_vision_image(
+        image_path,
+        image_path.with_name(f"{image_path.stem}-vision.png"),
+    )
+
     def _call() -> Any:
         client = _ollama_client()
         return client.chat(
@@ -271,7 +290,7 @@ def _extract_from_image(image_path: Path) -> tuple[list[MedicationField], str]:
             messages=[{
                 "role": "user",
                 "content": MED_EXTRACTION_PROMPT,
-                "images": [str(image_path)],
+                "images": [str(vision_path)],
             }],
             options={"temperature": 0.0},
         )

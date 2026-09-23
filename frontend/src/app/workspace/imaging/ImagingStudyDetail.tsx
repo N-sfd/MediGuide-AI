@@ -104,6 +104,7 @@ export function ImagingStudyDetail({
   const state = deriveReportState(study, sections, transientStatus);
   const previewUrl = study.report_document_id ? reportPagePreviewUrl(apiUrl, study.study_id, selectedPage) : "";
   const confirmedFindings = findings.filter((f) => f.verification_status === "confirmed");
+  const pendingFindings = findings.filter((f) => f.verification_status === "unverified");
   const canShowOverview = confirmedFindings.length > 0;
 
   const [tab, setTab] = useState<DetailTab>(canShowOverview ? "overview" : "report");
@@ -185,13 +186,13 @@ export function ImagingStudyDetail({
           <nav className="imaging-detail-tabs" aria-label="Study sections">
             {(
               [
-                ["overview", "Overview", canShowOverview],
-                ["report", "Report", true],
-                ["images", "Images", true],
-                ["explanation", "Explanation", canShowOverview],
-                ["source", "Source", true],
+                ["overview", "Overview", canShowOverview, null as number | null],
+                ["report", "Report", true, pendingFindings.length || null],
+                ["images", "Images", true, null],
+                ["explanation", "Explanation", canShowOverview, null],
+                ["source", "Source", true, null],
               ] as const
-            ).map(([id, label, enabled]) => (
+            ).map(([id, label, enabled, badge]) => (
               <button
                 key={id}
                 type="button"
@@ -203,6 +204,7 @@ export function ImagingStudyDetail({
                 }}
               >
                 {label}
+                {badge ? <span className="imaging-tab-badge">{badge}</span> : null}
               </button>
             ))}
           </nav>

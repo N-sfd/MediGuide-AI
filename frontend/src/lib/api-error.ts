@@ -36,17 +36,25 @@ export async function parseApiError(response: Response, fallbackMessage: string)
 }
 
 export class TimeoutError extends Error {
-  constructor(message = "Processing is taking longer than expected.") {
+  constructor(
+    message = "Reading this page is taking longer than expected. Phone photos of dense reports can take a few minutes — wait, or try Imaging with a clearer crop / text PDF.",
+  ) {
     super(message);
     this.name = "TimeoutError";
   }
 }
 
+/** Default for short GETs. Vision OCR process/upload calls pass a longer budget. */
+export const DEFAULT_FETCH_TIMEOUT_MS = 90_000;
+
+/** Covers up to 2× vision timeout + backoff so the UI does not abort while Ollama is still reading. */
+export const VISION_PROCESS_TIMEOUT_MS = 280_000;
+
 /** Wraps `fetch` with a hard timeout so the UI never waits indefinitely. */
 export async function fetchWithTimeout(
   input: string,
   init: RequestInit = {},
-  timeoutMs = 90_000,
+  timeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);

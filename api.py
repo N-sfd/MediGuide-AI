@@ -255,18 +255,9 @@ def _health_status(available: bool, detail: str = "") -> dict[str, str]:
 
 def _probe_ollama() -> tuple[bool, str, set[str]]:
     """Asks Ollama which models it actually has, rather than trusting config."""
-    endpoint = f"{OLLAMA_HOST.rstrip('/')}/api/tags"
+    from src.shared.ollama_health import probe_ollama
 
-    try:
-        response = requests.get(endpoint, timeout=OLLAMA_PROBE_TIMEOUT)
-        response.raise_for_status()
-        installed = {
-            str(model.get("name", ""))
-            for model in response.json().get("models", [])
-        }
-        return True, f"Connected · {len(installed)} models installed", installed
-    except Exception as error:
-        return False, f"Cannot reach {OLLAMA_HOST} ({type(error).__name__})", set()
+    return probe_ollama(timeout=OLLAMA_PROBE_TIMEOUT)
 
 
 def _model_status(model: str, installed: set[str], reachable: bool) -> dict[str, str]:

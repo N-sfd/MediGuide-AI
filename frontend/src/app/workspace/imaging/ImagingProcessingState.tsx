@@ -26,12 +26,18 @@ export function ImagingProcessingState({
   const activeStage = progress ? BACKEND_STAGE_TO_CHECKLIST[progress.stage] ?? "read" : "read";
   const waiting = progress?.stage === "waiting_for_service";
   return (
-    <ProcessingChecklist
-      activeStage={activeStage}
-      title="Processing imaging report"
-      waitingMessage={waiting ? "Document processing is starting up." : undefined}
-      attempt={waiting ? progress?.retryAttempt : undefined}
-      maxAttempts={waiting ? progress?.retryMax : undefined}
-    />
+    <div className="imaging-processing-wrap">
+      <ProcessingChecklist
+        activeStage={activeStage}
+        title="Processing imaging report"
+        waitingMessage={waiting ? "Waiting for the reading service…" : undefined}
+        attempt={waiting ? progress?.retryAttempt : undefined}
+        maxAttempts={waiting ? progress?.retryMax : undefined}
+      />
+      <p className="imaging-processing-tip">
+        Text PDFs usually finish in seconds. Phone photos of dense pages can take one to two minutes — leave this tab
+        open.
+      </p>
+    </div>
   );
 }
