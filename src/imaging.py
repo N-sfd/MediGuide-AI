@@ -36,19 +36,25 @@ from src.config import (
     VISION_MODEL_NAME,
 )
 from src.database.imaging_repository import (
+    confirm_findings,
     confirm_report_sections,
     create_study,
     delete_study,
     derive_study_verification_status,
+    get_finding,
+    get_findings,
     get_report_sections,
     get_study,
     list_studies,
     modality_summary,
+    report_gaps_for_study,
+    serialize_finding,
     serialize_section,
     serialize_study,
     set_pending_report_document,
     set_study_report_document,
     set_study_verification_status,
+    upsert_findings_from_sections,
     upsert_report_sections,
 )
 from src.database.models import ProcessingJob
@@ -116,6 +122,22 @@ class ConfirmSectionsRequest(BaseModel):
     sections: list[SectionEdit] = []
     confirm_types: list[str] = []
     reviewed: bool = False
+
+
+class FindingUpdate(BaseModel):
+    finding_id: str
+    confirmed_text: str | None = None
+    verification_status: str = "confirmed"
+
+
+class ConfirmFindingsRequest(BaseModel):
+    findings: list[FindingUpdate] = []
+    reviewed: bool = False
+
+
+class FindingExplainRequest(BaseModel):
+    finding_id: str
+    language: str = "English"
 
 
 class CompareRequest(BaseModel):
@@ -455,13 +477,19 @@ async def upload_report(study_id: str, file: UploadFile = File(...)) -> dict[str
                     text_available=bool(text),
                 )
             set_document_page_count(session, document_id, page_count)
-            upsert_report_sections(
+            section_rows = upsert_report_sections(
                 session,
                 study_id=study_id,
                 document_id=document_id,
                 sections=collected,
                 page_number=source_page,
                 extractor_version=PROCESSOR_VERSION,
+            )
+            upsert_findings_from_sections(
+                session,
+                study_id=study_id,
+                document_id=document_id,
+                sections=section_rows,
             )
             set_study_report_document(session, study_id, document_id)
 
@@ -550,6 +578,172 @@ async def confirm_sections_endpoint(
             "sections": [serialize_section(row) for row in rows],
             "verification_status": new_status,
         }
+
+
+@router.get("/studies/{study_id}/findings")
+async def list_findings_endpoint(study_id: str) -> dict[str, Any]:
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+        findings = get_findings(session, study_id)
+        gaps = report_gaps_for_study(session, study_id)
+        return {
+            "findings": [serialize_finding(row) for row in findings],
+            "gaps": gaps,
+            "boundary": (
+                "MediGuide explains the radiologist's report. "
+                "It does not independently diagnose the scan."
+            ),
+        }
+
+
+@router.post("/studies/{study_id}/findings/confirm")
+async def confirm_findings_endpoint(
+    study_id: str, request: ConfirmFindingsRequest
+) -> dict[str, Any]:
+    if not request.reviewed:
+        raise HTTPException(
+            status_code=400, detail="Review extracted findings before confirming."
+        )
+    with session_scope() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Imaging study not found.")
+        rows = confirm_findings(
+            session,
+            study_id=study_id,
+            updates=[item.model_dump() for item in request.findings],
+        )
+        return {"findings": [serialize_finding(row) for row in rows]}
+
+
+@router.post("/findings/explain")
+async def explain_finding_endpoint(request: FindingExplainRequest) -> dict[str, Any]:
+    """Educational explanation for a verified finding — Layer 2 only.
+
+    Report summary and source evidence remain available if the educational
+    model or knowledge retrieval is unavailable.
+    """
+    with session_scope() as session:
+        finding = get_finding(session, request.finding_id)
+        if finding is None:
+            raise HTTPException(status_code=404, detail="Finding not found.")
+        if finding.verification_status not in {"confirmed"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Confirm this finding before requesting an educational explanation.",
+            )
+        study = get_study(session, finding.study_id)
+        modality = study.modality if study else ""
+        finding_payload = serialize_finding(finding)
+        report_excerpt = finding.confirmed_text or finding.original_text
+
+    query = finding.normalized_concept or report_excerpt
+    evidence = retrieve_approved_evidence(query, top_k=5)
+
+    record_provenance = {
+        "finding_id": finding_payload["finding_id"],
+        "finding_text": report_excerpt,
+        "section": finding_payload["section"],
+        "source_document_id": finding_payload["source_document_id"],
+        "source_page": finding_payload["source_page"],
+        "verification_status": finding_payload["verification_status"],
+    }
+
+    if not evidence:
+        return {
+            "finding": finding_payload,
+            "record_provenance": record_provenance,
+            "answer_markdown": (
+                "We don't have enough approved source information to explain "
+                "this finding reliably."
+            ),
+            "what_this_means": "",
+            "what_can_be_associated": "",
+            "what_may_be_discussed_next": "",
+            "sources": [],
+            "education_available": False,
+            "unavailable_reason": "insufficient_evidence",
+        }
+
+    sources = []
+    source_lines = []
+    for index, item in enumerate(evidence, 1):
+        sources.append(
+            {
+                "citation_number": index,
+                "title": item.get("title", "Untitled source"),
+                "publisher": item.get("publisher", "Unknown publisher"),
+                "source_url": item.get("source_url", ""),
+                "passage": item.get("passage", ""),
+            }
+        )
+        source_lines.append(f"[{index}] {item.get('title', '')} — {item.get('passage', '')}")
+
+    modality_label = MODALITY_LABELS.get(modality, modality)
+    prompt = f"""Explain this radiology-report finding for a patient using ONLY the approved evidence.
+
+FINDING (from the radiology report — do not invent beyond this wording):
+{report_excerpt}
+
+Normalized concept (may be empty): {finding.normalized_concept or "not mapped"}
+Modality context: {modality_label}
+
+Write three short sections with these exact headings:
+WHAT DOES THIS MEAN?
+WHAT CAN BE ASSOCIATED WITH THIS?
+WHAT MAY BE DISCUSSED NEXT?
+
+Rules:
+- Use phrases like "can be associated with", "may occur with", "possible contributing factors include".
+- Never say "This happened because...", "The cause is...", "You need surgery", or prescribe treatment.
+- Prefer "A clinician may consider..." and "Depending on examination findings...".
+- Cite approved evidence with [n].
+- If evidence is weak for a section, say so plainly.
+
+APPROVED EVIDENCE
+{chr(10).join(source_lines)}
+"""
+
+    try:
+        from ollama import Client
+
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
+        response = client.chat(
+            model=MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "General educational information only. Use only the supplied "
+                        "approved evidence. Never diagnose from pixels or prescribe treatment."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            options={"temperature": 0.1},
+        )
+        answer = response.message.content.strip()
+        education_available = True
+        unavailable_reason = ""
+    except Exception:
+        answer = "Educational explanation is temporarily unavailable."
+        education_available = False
+        unavailable_reason = "model_unavailable"
+
+    return {
+        "finding": finding_payload,
+        "record_provenance": record_provenance,
+        "answer_markdown": answer,
+        "sources": sources,
+        "education_available": education_available,
+        "unavailable_reason": unavailable_reason,
+        "education_provenance": {
+            "citations": sources,
+            "corpus": "approved_knowledge",
+        },
+    }
 
 
 @router.get("/studies/{study_id}/report/pages/{page_number}/preview")

@@ -24,7 +24,12 @@ SECTION_TYPES = [
 
 _SECTION_HEADER_PATTERNS: dict[str, list[str]] = {
     "exam": [r"exam(?:ination)?"],
-    "clinical_history": [r"clinical\s+history", r"history"],
+    "clinical_history": [
+        r"clinical\s+history",
+        r"clinical\s+info(?:rmation)?",
+        r"indication",
+        r"history",
+    ],
     "technique": [r"technique"],
     "comparison": [r"comparison"],
     "findings": [r"findings"],

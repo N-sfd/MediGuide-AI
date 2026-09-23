@@ -57,7 +57,7 @@ export function ImagingReportPanel({
   return (
     <div className="imaging-report-panel">
       <p className="imaging-report-kicker">
-        <FileText size={13} /> FROM THE RADIOLOGY REPORT
+        <FileText size={13} /> From your report
       </p>
 
       {!allConfirmed && (

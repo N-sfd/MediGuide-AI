@@ -25,3 +25,5 @@ data/mediguide.db
 data/*.db
 
 *.log
+
+.vercel

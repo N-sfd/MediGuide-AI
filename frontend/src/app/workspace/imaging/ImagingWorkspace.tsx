@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ConfirmDialog, type ToastTone } from "../polish-ui";
 import type {
   CompareBucket,
+  FindingExplanation,
+  ImagingFinding,
   ImagingStudy,
   ImagingView,
   Modality,
   ModalitySummary,
+  ReportGap,
   ReportSection,
   TermExplanation,
 } from "./imaging-types";
@@ -31,6 +35,7 @@ export function ImagingWorkspace({
    * to that study's detail view on mount, bypassing the modality browser. */
   openStudyId?: string | null;
 }) {
+  const router = useRouter();
   const [view, setView] = useState<ImagingView>("landing");
   const [modalities, setModalities] = useState<ModalitySummary[]>([]);
   const [studies, setStudies] = useState<ImagingStudy[]>([]);
@@ -38,8 +43,18 @@ export function ImagingWorkspace({
   const [selectedModality, setSelectedModality] = useState<Modality | null>(null);
   const [selectedStudy, setSelectedStudy] = useState<ImagingStudy | null>(null);
   const [sections, setSections] = useState<ReportSection[]>([]);
+  const [findings, setFindings] = useState<ImagingFinding[]>([]);
+  const [gaps, setGaps] = useState<ReportGap[]>([]);
+  const [boundary, setBoundary] = useState(
+    "MediGuide explains the radiologist's report. It does not independently diagnose the scan.",
+  );
   const [editedSections, setEditedSections] = useState<Record<string, string>>({});
   const [reviewedTypes, setReviewedTypes] = useState<Set<string>>(new Set());
+  const [findingDrafts, setFindingDrafts] = useState<Record<string, string>>({});
+  const [reviewedFindingIds, setReviewedFindingIds] = useState<Set<string>>(new Set());
+  const [confirmingFindings, setConfirmingFindings] = useState(false);
+  const [findingExplanation, setFindingExplanation] = useState<FindingExplanation | null>(null);
+  const [findingExplainLoading, setFindingExplainLoading] = useState(false);
   const [selectedPage, setSelectedPage] = useState(1);
   const [viewerExpanded, setViewerExpanded] = useState(false);
   const [transientStatus, setTransientStatus] = useState<"processing" | "failed" | null>(null);
@@ -119,6 +134,19 @@ export function ImagingWorkspace({
     }
   }
 
+  async function loadFindings(studyId: string) {
+    try {
+      const data = await imagingApi.fetchFindings(apiUrl, studyId);
+      setFindings(data.findings || []);
+      setGaps(data.gaps || []);
+      if (data.boundary) setBoundary(data.boundary);
+      const confirmed = (data.findings || []).filter((f) => f.verification_status === "confirmed").map((f) => f.finding_id);
+      if (confirmed.length) setReviewedFindingIds(new Set(confirmed));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load findings.");
+    }
+  }
+
   async function openStudy(study: ImagingStudy, page = 1) {
     setError("");
     setSelectedStudy(study);
@@ -126,13 +154,19 @@ export function ImagingWorkspace({
     setViewerExpanded(false);
     setReviewedTypes(new Set());
     setEditedSections({});
+    setFindingDrafts({});
+    setReviewedFindingIds(new Set());
+    setFindingExplanation(null);
     setTransientStatus(null);
     setProcessingError("");
     setView("detail");
     if (study.report_document_id) {
       await loadSections(study.study_id);
+      await loadFindings(study.study_id);
     } else {
       setSections([]);
+      setFindings([]);
+      setGaps([]);
     }
   }
 
@@ -204,6 +238,7 @@ export function ImagingWorkspace({
       pushToast("Report extracted — review required", "success");
       setTransientStatus(null);
       await loadSections(studyId);
+      await loadFindings(studyId);
       await loadModalities();
       const refreshed = await imagingApi.fetchStudy(apiUrl, studyId);
       setSelectedStudy(refreshed);
@@ -238,6 +273,7 @@ export function ImagingWorkspace({
       const data = await imagingApi.confirmSections(apiUrl, selectedStudy.study_id, payload, Array.from(reviewedTypes));
       setSections(data.sections || []);
       setSelectedStudy({ ...selectedStudy, verification_status: data.verification_status as ImagingStudy["verification_status"] });
+      await loadFindings(selectedStudy.study_id);
       pushToast(
         data.verification_status === "verified" ? "Report information verified" : "Reviewed sections confirmed",
         "success",
@@ -246,6 +282,50 @@ export function ImagingWorkspace({
       setError(err instanceof Error ? err.message : "Could not confirm this report.");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function confirmFindingUpdates(
+    updates: { finding_id: string; confirmed_text: string; verification_status: string }[],
+  ) {
+    if (!selectedStudy || updates.length === 0) return;
+    setConfirmingFindings(true);
+    setError("");
+    try {
+      const data = await imagingApi.confirmFindings(apiUrl, selectedStudy.study_id, updates);
+      setFindings(data.findings || []);
+      pushToast("Findings updated", "success");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not confirm these findings.");
+    } finally {
+      setConfirmingFindings(false);
+    }
+  }
+
+  async function explainFinding(finding: ImagingFinding) {
+    setFindingExplainLoading(true);
+    setFindingExplanation(null);
+    try {
+      const data = await imagingApi.explainFinding(apiUrl, finding.finding_id);
+      setFindingExplanation(data);
+    } catch (err) {
+      setFindingExplanation({
+        finding,
+        record_provenance: {
+          finding_id: finding.finding_id,
+          finding_text: finding.finding_text,
+          section: finding.section,
+          source_document_id: finding.source_document_id,
+          source_page: finding.source_page,
+          verification_status: finding.verification_status,
+        },
+        answer_markdown: err instanceof Error ? err.message : "Educational explanation is temporarily unavailable.",
+        sources: [],
+        education_available: false,
+        unavailable_reason: "model_unavailable",
+      });
+    } finally {
+      setFindingExplainLoading(false);
     }
   }
 
@@ -403,10 +483,17 @@ export function ImagingWorkspace({
           apiUrl={apiUrl}
           study={selectedStudy}
           sections={sections}
+          findings={findings}
+          gaps={gaps}
+          boundary={boundary}
           editedSections={editedSections}
           setEditedSections={setEditedSections}
           reviewedTypes={reviewedTypes}
           setReviewedTypes={setReviewedTypes}
+          findingDrafts={findingDrafts}
+          setFindingDrafts={setFindingDrafts}
+          reviewedFindingIds={reviewedFindingIds}
+          setReviewedFindingIds={setReviewedFindingIds}
           selectedPage={selectedPage}
           setSelectedPage={setSelectedPage}
           viewerExpanded={viewerExpanded}
@@ -415,6 +502,7 @@ export function ImagingWorkspace({
           processingError={processingError}
           processingProgress={processingProgress}
           confirming={confirming}
+          confirmingFindings={confirmingFindings}
           onBack={() => setView(selectedModality ? "list" : "landing")}
           onOpenHistory={() => void openHistory()}
           onOpenCompare={() => void openCompare(selectedStudy)}
@@ -422,8 +510,19 @@ export function ImagingWorkspace({
           onRetryUpload={retryUpload}
           onViewExistingReport={viewExistingReport}
           onConfirm={() => void confirmSections()}
+          onConfirmFindings={(updates) => void confirmFindingUpdates(updates)}
+          onExplainFinding={(finding) => void explainFinding(finding)}
+          findingExplanation={findingExplanation}
+          findingExplainLoading={findingExplainLoading}
           onRequestDelete={requestDeleteSelected}
           onOpenTerminology={openTerminology}
+          onAddToVisit={() => {
+            pushToast("Added to Visit Preparation", "success");
+            router.push("/workspace/visit");
+          }}
+          onOpenSourceDocument={(documentId, page) => {
+            router.push(`/workspace/documents/${documentId}?page=${page}`);
+          }}
         />
       )}
 

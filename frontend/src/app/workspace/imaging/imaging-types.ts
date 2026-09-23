@@ -74,6 +74,47 @@ export interface TermExplanation {
   sources: { title: string; publisher: string }[];
 }
 
+export interface ImagingFinding {
+  finding_id: string;
+  study_id: string;
+  report_section_id: string | null;
+  section: string;
+  ordinal: number;
+  finding_text: string;
+  original_text: string;
+  confirmed_text: string;
+  normalized_concept: string;
+  anatomy: string;
+  laterality: string;
+  source_document_id: string;
+  source_page: number;
+  summary_label: string;
+  verification_status: "unverified" | "confirmed" | "rejected" | "could_not_read";
+  bbox: { x: number; y: number; width: number; height: number } | null;
+}
+
+export interface ReportGap {
+  label: string;
+  note: string;
+}
+
+export interface FindingExplanation {
+  finding: ImagingFinding;
+  record_provenance: {
+    finding_id: string;
+    finding_text: string;
+    section: string;
+    source_document_id: string;
+    source_page: number;
+    verification_status: string;
+  };
+  answer_markdown: string;
+  sources: { citation_number: number; title: string; publisher: string; source_url?: string; passage?: string }[];
+  education_available: boolean;
+  unavailable_reason: string;
+  education_provenance?: { citations: unknown[]; corpus: string };
+}
+
 export type ImagingView = "landing" | "list" | "detail" | "history" | "compare";
 
 /**

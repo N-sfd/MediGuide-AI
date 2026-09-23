@@ -1,5 +1,14 @@
 import { fetchWithTimeout, parseApiError } from "../../../lib/api-error";
-import type { CompareBucket, ImagingStudy, Modality, ModalitySummary, ReportSection } from "./imaging-types";
+import type {
+  CompareBucket,
+  FindingExplanation,
+  ImagingFinding,
+  ImagingStudy,
+  Modality,
+  ModalitySummary,
+  ReportGap,
+  ReportSection,
+} from "./imaging-types";
 
 /** DICOM is intercepted client-side (see ImagingLanding/ImagingReportPanel
  * upload handlers) before any request is made, so this code path exists
@@ -145,4 +154,33 @@ export function explainTerm(
 
 export function reportPagePreviewUrl(apiUrl: string, studyId: string, page: number): string {
   return `${apiUrl}/api/imaging/studies/${studyId}/report/pages/${page}/preview`;
+}
+
+export function fetchFindings(
+  apiUrl: string,
+  studyId: string,
+): Promise<{ findings: ImagingFinding[]; gaps: ReportGap[]; boundary: string }> {
+  return fetchWithTimeout(`${apiUrl}/api/imaging/studies/${studyId}/findings`).then((r) =>
+    asJson(r, "Could not load report findings."),
+  );
+}
+
+export function confirmFindings(
+  apiUrl: string,
+  studyId: string,
+  findings: { finding_id: string; confirmed_text?: string; verification_status: string }[],
+): Promise<{ findings: ImagingFinding[] }> {
+  return fetchWithTimeout(`${apiUrl}/api/imaging/studies/${studyId}/findings/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reviewed: true, findings }),
+  }).then((r) => asJson(r, "Could not confirm these findings."));
+}
+
+export function explainFinding(apiUrl: string, findingId: string): Promise<FindingExplanation> {
+  return fetchWithTimeout(`${apiUrl}/api/imaging/findings/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ finding_id: findingId }),
+  }).then((r) => asJson(r, "Educational explanation is temporarily unavailable."));
 }

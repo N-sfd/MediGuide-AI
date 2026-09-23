@@ -258,6 +258,10 @@ class ImagingStudy(Base):
         back_populates="study",
         cascade="all, delete-orphan",
     )
+    findings: Mapped[list["ImagingFinding"]] = relationship(
+        back_populates="study",
+        cascade="all, delete-orphan",
+    )
 
 
 class ImagingSeries(Base):
@@ -316,6 +320,67 @@ class ImagingReportSection(Base):
     )
 
     study: Mapped[ImagingStudy] = relationship(back_populates="sections")
+
+
+class ImagingFinding(Base):
+    """A discrete finding extracted from a radiology report section.
+
+    Provenance discipline mirrors ImagingReportSection / ExtractedField:
+    original_text is never overwritten after user correction; confirmed_text
+    holds the reviewed wording. MediGuide never invents missing anatomy or
+    laterality — empty strings mean "not identified in the report text."
+    """
+
+    __tablename__ = "imaging_findings"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "section_type",
+            "ordinal",
+            name="uq_imaging_finding_ordinal",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    study_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("imaging_studies.id", ondelete="CASCADE"), index=True
+    )
+    report_section_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("imaging_report_sections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    section_type: Mapped[str] = mapped_column(String(32), nullable=False, default="impression")
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    original_text: Mapped[str] = mapped_column(Text, default="")
+    confirmed_text: Mapped[str] = mapped_column(Text, default="")
+    source_text: Mapped[str] = mapped_column(Text, default="")
+    normalized_concept: Mapped[str] = mapped_column(String(256), default="")
+    anatomy: Mapped[str] = mapped_column(String(256), default="")
+    laterality: Mapped[str] = mapped_column(String(32), default="")
+    page_number: Mapped[int] = mapped_column(Integer, default=1)
+    bbox_x: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bbox_y: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bbox_width: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bbox_height: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verification_status: Mapped[str] = mapped_column(
+        String(32), default="unverified", index=True
+    )
+    extractor_version: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    study: Mapped[ImagingStudy] = relationship(back_populates="findings")
 
 
 class MedicationRecord(Base):
