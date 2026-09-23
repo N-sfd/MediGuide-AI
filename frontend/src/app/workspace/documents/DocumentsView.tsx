@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Documents } from "../workspace-views";
 import { useWorkspaceContext } from "../_state/WorkspaceStateProvider";
 import { API_URL } from "../_state/workspace-shared";
@@ -8,6 +9,7 @@ import { API_URL } from "../_state/workspace-shared";
 // (/workspace/documents/[id]) — both just render the current context state
 // through the same view; only how that state gets populated differs.
 export function DocumentsView() {
+  const router = useRouter();
   const {
     docState, docFields, docConfirmed, docReviewChecked, setDocReviewChecked,
     docSelectedPage, setDocSelectedPage, highlightedFieldId, setHighlightedFieldId,
@@ -66,6 +68,7 @@ export function DocumentsView() {
       onRetry={retryDocumentAction}
       onSystem={() => handleViewChange("system")}
       onRemove={() => setConfirmResetDocument(true)}
+      onOpenImaging={() => router.push("/workspace/imaging")}
       processStage={processStage}
       processFailed={processFailed}
       processRetry={processRetry}

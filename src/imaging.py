@@ -31,6 +31,7 @@ from src.config import (
     MODEL_NAME,
     OLLAMA_HOST,
     OLLAMA_TIMEOUT_SECONDS,
+    OLLAMA_VISION_TIMEOUT_SECONDS,
     PROCESSING_RETRY_ATTEMPTS,
     PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
     VISION_MODEL_NAME,
@@ -204,7 +205,7 @@ def _extract_sections_via_vision(
         ) from error
 
     def _call() -> Any:
-        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_VISION_TIMEOUT_SECONDS)
         return client.chat(
             model=VISION_MODEL_NAME,
             messages=[{

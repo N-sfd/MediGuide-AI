@@ -231,7 +231,7 @@ export function Documents({
   docExplain, docQuestion, setDocQuestion,
   selectedSource, setSelectedSource,
   dragging, recentSessions, onOpenSession, onUpload, onLoadSample, demoGuide, onOpenLabsFromDemo, onDrop, onDragEnter, onDragLeave, onFieldChange, onConfirm, onExplain, onSuggestQuestions, onPrepareVisit, onAskAbout, onExportFields, onOpenLabs, onReset,
-  loading, error, errorKind, labsHint, confirmedLabCodes, onRetry, onSystem, onRemove,
+  loading, error, errorKind, labsHint, confirmedLabCodes, onRetry, onSystem, onRemove, onOpenImaging,
   processStage, processFailed, processRetry, fieldReviewState, setFieldReviewState, previewZoom, setPreviewZoom, sourceBreadcrumb, onClearBreadcrumb, onBackToTimeline,
 }: {
   apiUrl: string;
@@ -276,6 +276,7 @@ export function Documents({
   onRetry: () => void;
   onSystem: () => void;
   onRemove: () => void;
+  onOpenImaging?: () => void;
   processStage: ProcessStageId | null;
   processFailed: boolean;
   processRetry: { attempt: number; max: number } | null;
@@ -328,7 +329,7 @@ export function Documents({
       {!loading && <div className={dragging ? "upload-zone is-dragging" : "upload-zone"} onDrop={onDrop} onDragEnter={(event) => { event.preventDefault(); onDragEnter(); }} onDragOver={(event) => event.preventDefault()} onDragLeave={onDragLeave}>
         <span className="upload-art"><FileText size={25} /><span><ImageIcon size={14} /></span></span>
         <strong>Drop a PDF or image here</strong>
-        <span>Lab reports and medication labels · Multi-page supported</span>
+        <span>Lab reports · For MRI / X-ray / CT reports use Imaging</span>
         <div className="upload-actions">
           <button className="forest-button" type="button" onClick={onUpload}>Choose file <Paperclip size={16} /></button>
           <button className="quiet-button" type="button" onClick={onLoadSample}>Try synthetic report</button>
@@ -392,8 +393,20 @@ export function Documents({
         <div className="explain-actions">
           <button type="button" className="quiet-button" onClick={onRetry}>Retry processing</button>
           <button type="button" className="quiet-button" onClick={onRemove}>Remove document</button>
+          {onOpenImaging ? (
+            <button type="button" className="forest-button" onClick={onOpenImaging}>
+              Open Imaging instead
+            </button>
+          ) : null}
         </div>
       )}
+      {error && /AI service|did not respond|timeout/i.test(error) ? (
+        <p className="imaging-boundary" style={{ marginTop: 12 }}>
+          Your original file is still available. Phone photos of radiology reports belong in{" "}
+          <strong>Imaging</strong> (MRI / X-ray / CT report text), not Documents lab extraction. If you retry here,
+          dense pages may take longer while the reading service is warming up.
+        </p>
+      ) : null}
     </div>;
   }
 

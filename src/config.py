@@ -145,6 +145,16 @@ OLLAMA_TIMEOUT_SECONDS = float(
     )
 )
 
+# Vision OCR of dense report photos (e.g. phone photos of MRI pages) routinely
+# needs longer than chat/completions. Falls back to OLLAMA_TIMEOUT_SECONDS
+# when unset below that floor.
+OLLAMA_VISION_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "OLLAMA_VISION_TIMEOUT_SECONDS",
+        "90",
+    )
+)
+
 # Bounded retry for transient (connection/timeout/5xx) Ollama failures during
 # document/imaging/medication extraction. Permanent failures are never
 # retried. The schedule is the wait *between* attempts — 3 attempts only

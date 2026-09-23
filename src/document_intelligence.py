@@ -24,6 +24,7 @@ from src.config import (
     MODEL_NAME,
     OLLAMA_HOST,
     OLLAMA_TIMEOUT_SECONDS,
+    OLLAMA_VISION_TIMEOUT_SECONDS,
     PROCESSING_RETRY_ATTEMPTS,
     PROCESSING_RETRY_BACKOFF_SCHEDULE_SECONDS,
     RAG_MAX_PASSAGE_WORDS,
@@ -351,7 +352,7 @@ def _extract_page_fields(
         ) from error
 
     def _call() -> Any:
-        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECONDS)
+        client = Client(host=OLLAMA_HOST, timeout=OLLAMA_VISION_TIMEOUT_SECONDS)
         return client.chat(
             model=VISION_MODEL,
             messages=[{
